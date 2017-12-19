@@ -348,6 +348,7 @@ struct stream_out {
     pthread_mutex_t lock; /* see note below on mutex acquisition order */
     struct pcm *pcm[PCM_TOTAL];
     struct pcm_config config;
+    struct audio_config aud_config;
     unsigned int pcm_device;
     bool standby; /* true if all PCMs are inactive */
     audio_devices_t device;
@@ -412,6 +413,7 @@ struct string_to_enum {
 
 const struct string_to_enum out_channels_name_to_enum_table[] = {
     STRING_TO_ENUM(AUDIO_CHANNEL_OUT_STEREO),
+    STRING_TO_ENUM(AUDIO_CHANNEL_OUT_MONO),
     STRING_TO_ENUM(AUDIO_CHANNEL_OUT_5POINT1),
     STRING_TO_ENUM(AUDIO_CHANNEL_OUT_7POINT1),
 };

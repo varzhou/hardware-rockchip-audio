@@ -975,7 +975,7 @@ static uint32_t out_get_sample_rate(const struct audio_stream *stream)
 {
     struct stream_out *out = (struct stream_out *)stream;
 
-    return out->config.rate;
+    return out->aud_config.sample_rate;
 }
 
 /**
@@ -1016,8 +1016,7 @@ static size_t out_get_buffer_size(const struct audio_stream *stream)
 static audio_channel_mask_t out_get_channels(const struct audio_stream *stream)
 {
     struct stream_out *out = (struct stream_out *)stream;
-
-    return out->channel_mask;
+    return out->aud_config.channel_mask;
 }
 
 /**
@@ -1029,7 +1028,9 @@ static audio_channel_mask_t out_get_channels(const struct audio_stream *stream)
  */
 static audio_format_t out_get_format(const struct audio_stream *stream)
 {
-    return AUDIO_FORMAT_PCM_16_BIT;
+    struct stream_out *out = (struct stream_out *)stream;
+
+    return out->aud_config.format;
 }
 
 /**
@@ -1229,6 +1230,14 @@ static int out_set_parameters(struct audio_stream *stream, const char *kvpairs)
     ALOGD("%s: kvpairs = %s", __func__, kvpairs);
 
     parms = str_parms_create_str(kvpairs);
+
+    //set channel_mask
+    ret = str_parms_get_str(parms, AUDIO_PARAMETER_STREAM_CHANNELS,
+                            value, sizeof(value));
+    if (ret >= 0) {
+        val = atoi(value);
+        out->aud_config.channel_mask = val;
+    }
 
     ret = str_parms_get_str(parms, AUDIO_PARAMETER_STREAM_ROUTING,
                             value, sizeof(value));
@@ -2271,6 +2280,9 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
         return -ENOMEM;
 
     out->supported_channel_masks[0] = AUDIO_CHANNEL_OUT_STEREO;
+    out->supported_channel_masks[1] = AUDIO_CHANNEL_OUT_MONO;
+    if(config != NULL)
+        memcpy(&(out->aud_config),config,sizeof(struct audio_config));
     out->channel_mask = AUDIO_CHANNEL_OUT_STEREO;
     if (devices == AUDIO_DEVICE_NONE)
         devices = AUDIO_DEVICE_OUT_SPEAKER;
@@ -2370,7 +2382,6 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
         out->output_direct_mode = LPCM;
     }
 
-    ALOGD("out->config.rate = %d, out->config.channels = %d", out->config.rate, out->config.channels);
     direct_mode.output_mode = HW_PARAMS_FLAG_LPCM;
     if ((type == OUTPUT_HDMI_MULTI) && (devices & AUDIO_DEVICE_OUT_AUX_DIGITAL) && (device_mode == HDMI_BITSTREAM_MODE)) {
         direct_mode.output_mode = HW_PARAMS_FLAG_NLPCM;
@@ -2385,6 +2396,9 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
         direct_mode.output_mode = HW_PARAMS_FLAG_LPCM;
         out->config.format = PCM_FORMAT_S16_LE;
     }
+
+    ALOGD("out->config.rate = %d, out->config.channels = %d out->config.format = %d",
+          out->config.rate, out->config.channels, out->config.format);
 
     out->stream.common.get_sample_rate = out_get_sample_rate;
     out->stream.common.set_sample_rate = out_set_sample_rate;
@@ -2408,10 +2422,6 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     out->dev = adev;
     out->dev->pre_output_device_id = OUT_DEVICE_SPEAKER;
     out->dev->pre_input_source_id = IN_SOURCE_MIC;
-
-    config->format = out_get_format(&out->stream.common);
-    config->channel_mask = out_get_channels(&out->stream.common);
-    config->sample_rate = out_get_sample_rate(&out->stream.common);
 
     out->standby = true;
     out->nframes = 0;
