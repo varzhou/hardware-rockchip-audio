@@ -117,7 +117,7 @@ int PCM_BT = 3;
 #define HDMI_BITSTREAM_MODE 6
 #define SPDIF_PASSTHROUGH_MODE 8
 
-#ifdef RK3399
+#ifdef USE_DRM
 #define HDMI_AUIOINFO_NODE      "/sys/class/drm/card0-HDMI-A-1/audioformat"
 #else
 #define HDMI_AUIOINFO_NODE      "/sys/class/display/HDMI/audioinfo"
