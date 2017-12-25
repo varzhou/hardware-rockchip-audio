@@ -34,6 +34,9 @@ LOCAL_CFLAGS := -Wno-unused-parameter
 ifneq ($(filter box atv, $(strip $(TARGET_BOARD_PLATFORM_PRODUCT))), )
 LOCAL_CFLAGS += -DBOX_HAL
 endif
+ifeq ($(strip $(BOARD_USE_DRM)),true)
+LOCAL_CFLAGS += -DUSE_DRM
+endif
 ifeq ($(strip $(TARGET_BOARD_PLATFORM)),rk3368)
 LOCAL_CFLAGS += -DRK3368
 endif

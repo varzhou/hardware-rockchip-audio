@@ -545,7 +545,6 @@ static int mixer_mode_set(struct stream_out *out)
     struct mixer *mMixer;
     struct mixer_ctl *pctl;
     struct mixer *mMixerPlayback;
-
     mMixerPlayback = mixer_open_legacy(PCM_CARD_HDMI);
     mMixer = mMixerPlayback;
     pctl = mixer_get_control(mMixer,"AUDIO MODE",0 );
@@ -632,7 +631,7 @@ static int start_output_stream(struct stream_out *out)
     if (out->device & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
         if (connect_hdmi) {
 #ifdef BOX_HAL
-#ifdef RK3399
+#ifdef USE_DRM
             int ret = 0;
             ret = mixer_mode_set(out);
 
@@ -1102,7 +1101,7 @@ static void do_out_standby(struct stream_out *out)
             force_non_hdmi_out_standby(adev);
         }
 #ifdef BOX_HAL
-#ifdef RK3399
+#ifdef USE_DRM
         out->output_direct_mode = LPCM;
         mixer_mode_set(out);
 #endif
