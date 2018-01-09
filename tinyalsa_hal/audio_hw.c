@@ -541,12 +541,14 @@ static inline bool hasSpdif()
  */
 static int mixer_mode_set(struct stream_out *out)
 {
-    int ret = 0;
-    struct mixer *mMixer;
+    int ret = -1;
+    struct mixer *mMixer = NULL;
     struct mixer_ctl *pctl;
-    struct mixer *mMixerPlayback;
-    mMixerPlayback = mixer_open_legacy(PCM_CARD_HDMI);
-    mMixer = mMixerPlayback;
+    mMixer = mixer_open_legacy(PCM_CARD_HDMI);
+    if(!mMixer) {
+	ALOGE("mMixer is a null point %s %d",__func__, __LINE__);
+	return ret;
+    }
     pctl = mixer_get_control(mMixer,"AUDIO MODE",0 );
     ALOGD("Now set mixer audio_mode is %d for drm",out->output_direct_mode);
     switch (out->output_direct_mode) {
@@ -560,10 +562,13 @@ static int mixer_mode_set(struct stream_out *out)
         ret = mixer_ctl_set_val(pctl , out->output_direct_mode);
         break;
     }
+
+    mixer_close_legacy(mMixer);
     if (ret!=0) {
         ALOGE("set_controls() can not set ctl!");
         return -EINVAL;
     }
+
     return ret;
 }
 
