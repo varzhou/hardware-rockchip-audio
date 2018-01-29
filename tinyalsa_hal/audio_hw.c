@@ -1107,7 +1107,6 @@ static void do_out_standby(struct stream_out *out)
         }
 #ifdef BOX_HAL
 #ifdef USE_DRM
-        out->output_direct_mode = LPCM;
         mixer_mode_set(out);
 #endif
 #endif
