@@ -25,6 +25,7 @@ LOCAL_SRC_FILES := \
 	audio_hw.c \
 	alsa_route.c \
 	alsa_mixer.c \
+	voice_preprocess.c \
 	audio_hw_hdmi.c
 LOCAL_C_INCLUDES += \
 	external/tinyalsa/include \
@@ -38,6 +39,9 @@ LOCAL_CFLAGS += -DBOX_HAL
 endif
 ifeq ($(strip $(BOARD_USE_DRM)),true)
 LOCAL_CFLAGS += -DUSE_DRM
+endif
+ifeq ($(strip $(BOARD_USE_AUDIO_3A)),true)
+LOCAL_CFLAGS += -DAUDIO_3A
 endif
 ifeq ($(strip $(TARGET_BOARD_PLATFORM)),rk3368)
 LOCAL_CFLAGS += -DRK3368
@@ -67,7 +71,7 @@ endif
 ifeq ($(AUD_VOICE_CONFIG),voice_support)
 LOCAL_CFLAGS += -DVOICE_SUPPORT
 endif
-LOCAL_SHARED_LIBRARIES := liblog libcutils libtinyalsa libaudioutils libaudioroute libhardware_legacy
+LOCAL_SHARED_LIBRARIES := liblog libcutils libtinyalsa libaudioutils libaudioroute libhardware_legacy libspeexresampler
 LOCAL_STATIC_LIBRARIES := libspeex
 LOCAL_MODULE_TAGS := optional
 include $(BUILD_SHARED_LIBRARY)

@@ -1115,6 +1115,11 @@ static void do_out_standby(struct stream_out *out)
         /* re-calculate the set of active devices from other streams */
         adev->out_device = output_devices(out);
 
+#ifdef AUDIO_3A
+        if (adev->voice_api != NULL) {
+            adev->voice_api->flush();
+        }
+#endif
         route_pcm_close(PLAYBACK_OFF_ROUTE);
         ALOGD("close device");
 
@@ -1581,7 +1586,17 @@ false_alarm:
 	if (!out->output_direct){
 		set_data_slice((void *)buffer,out,bytes);
 	}
-	
+#ifdef AUDIO_3A
+    if (adev->voice_api != NULL) {
+        int ret = 0;
+        adev->voice_api->queuePlaybackBuffer(buffer, bytes);
+        ret = adev->voice_api->getPlaybackBuffer(buffer, bytes);
+        if (ret < 0) {
+            memset((char *)buffer, 0x00, bytes);
+        }
+    }
+#endif
+
     property_get("media.audio.record", value, NULL);
     prop_pcm = atoi(value);
     if (prop_pcm > 0) {
@@ -2070,6 +2085,11 @@ static ssize_t in_read(struct audio_stream_in *stream, void* buffer,
         if (ret < 0)
             goto exit;
         in->standby = false;
+#ifdef AUDIO_3A
+        if (adev->voice_api != NULL) {
+            adev->voice_api->start();
+        }
+#endif
     }
 
     /*if (in->num_preprocessors != 0)
@@ -2079,6 +2099,18 @@ static ssize_t in_read(struct audio_stream_in *stream, void* buffer,
     ret = read_frames(in, buffer, frames_rq);
     if (ret > 0)
         ret = 0;
+
+#ifdef AUDIO_3A
+    do {
+        if (adev->voice_api != NULL) {
+            int ret  = 0;
+            ret = adev->voice_api->quueCaputureBuffer(buffer, bytes);
+            if (ret < 0) break;
+            ret = adev->voice_api->getCapureBuffer(buffer, bytes);
+            if (ret < 0) memset(buffer, 0x00, bytes);
+        }
+    } while (0);
+#endif
 
     //if (in->ramp_frames > 0)
     //    in_apply_ramp(in, buffer, frames_rq);
@@ -2776,6 +2808,17 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
         }
     }
 
+#ifdef AUDIO_3A
+    ALOGD("voice process has opened, try to create voice process!");
+    adev->voice_api = rk_voiceprocess_create(DEFAULT_PLAYBACK_SAMPLERATE,
+                                             DEFAULT_PLAYBACK_CHANNELS,
+                                             in->requested_rate,
+                                             audio_channel_count_from_in_mask(in->channel_mask));
+    if (adev->voice_api == NULL) {
+        ALOGE("crate voice process failed!");
+    }
+#endif
+
 #ifdef SPEEX_DENOISE_ENABLE
     uint32_t size;
     int denoise = 1;
@@ -2828,6 +2871,7 @@ static void adev_close_input_stream(struct audio_hw_device *dev,
                                     struct audio_stream_in *stream)
 {
     struct stream_in *in = (struct stream_in *)stream;
+    struct audio_device *adev = (struct audio_device *)dev;
 
     in_standby(&stream->common);
     if (in->resampler) {
@@ -2836,6 +2880,12 @@ static void adev_close_input_stream(struct audio_hw_device *dev,
     }
 #ifdef ALSA_IN_DEBUG
     fclose(in_debug);
+#endif
+#ifdef AUDIO_3A
+    if (adev->voice_api != NULL) {
+        rk_voiceprocess_destory();
+        adev->voice_api = NULL;
+    }
 #endif
 
 #ifdef SPEEX_DENOISE_ENABLE
@@ -2938,6 +2988,9 @@ static int adev_open(const hw_module_t* module, const char* name,
      * selection is always applied by select_devices() */
 
     adev->hdmi_drv_fd = -1;
+#ifdef AUDIO_3A
+    adev->voice_api = NULL;
+#endif
 
     *device = &adev->hw_device.common;
 

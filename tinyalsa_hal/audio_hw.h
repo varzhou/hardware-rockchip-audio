@@ -72,8 +72,9 @@
 #include <linux/fb.h>
 #include <hardware_legacy/uevent.h>
 
-#define AUDIO_HAL_VERSION "ALSA Audio Version: V1.1.0"
+#include "voice_preprocess.h"
 
+#define AUDIO_HAL_VERSION "ALSA Audio Version: V1.1.0"
 
 #ifdef BOX_HAL
 int PCM_CARD = 0;
@@ -98,6 +99,11 @@ int PCM_BT = 3;
 
 /* duration in ms of volume ramp applied when starting capture to remove plop */
 #define CAPTURE_START_RAMP_MS 100
+
+/* default sampling for default output */
+#define DEFAULT_PLAYBACK_SAMPLERATE 44100
+
+#define DEFAULT_PLAYBACK_CHANNELS 2
 
 /* default sampling for HDMI multichannel output */
 #define HDMI_MULTI_DEFAULT_SAMPLING_RATE  44100
@@ -307,6 +313,9 @@ struct audio_device {
     int pre_output_device_id;
     int pre_input_source_id;
     unsigned int mode;
+#ifdef AUDIO_3A
+    rk_process_api* voice_api;
+#endif
 
 };
 
