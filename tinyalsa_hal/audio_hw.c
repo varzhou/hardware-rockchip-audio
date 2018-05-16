@@ -2257,7 +2257,7 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     struct audio_device *adev = (struct audio_device *)dev;
     struct stream_out *out;
     int ret;
-    enum output_type type;
+    enum output_type type = OUTPUT_LOW_LATENCY;
 
     ALOGD("audio hal adev_open_output_stream devices = 0x%x, flags = %d, samplerate = %d",
           devices, flags, config->sample_rate);
@@ -2323,6 +2323,8 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
                 out->config.channels = audio_channel_count_from_out_mask(config->channel_mask);
                 out->pcm_device = PCM_DEVICE;
                 type = OUTPUT_HDMI_MULTI;
+            }else{
+                ALOGD("Not any bitstream mode!");
             }
         } else if ((devices & AUDIO_DEVICE_OUT_SPDIF)) {
             out->channel_mask = config->channel_mask;
@@ -2993,6 +2995,9 @@ static int adev_open(const hw_module_t* module, const char* name,
 #endif
 
     *device = &adev->hw_device.common;
+    for(int i =0; i < OUTPUT_TOTAL; i++){
+        adev->outputs[i] = NULL;
+    }
 
     char value[PROPERTY_VALUE_MAX];
     if (property_get("audio_hal.period_size", value, NULL) > 0) {
