@@ -32,6 +32,7 @@
 #include <sys/time.h>
 #include <dlfcn.h>  // for dlopen/dlclose
 #include <fcntl.h>
+#include <string.h>
 
 #include <cutils/log.h>
 #include <cutils/properties.h>

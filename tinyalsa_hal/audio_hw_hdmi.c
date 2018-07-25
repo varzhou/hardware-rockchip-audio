@@ -22,12 +22,14 @@
  */
 
 #include "audio_hw_hdmi.h"
+#include <unistd.h>
+#include  <pthread.h>
 
 #define LOG_TAG "audio_hdmi_monitor"
 
 
 /**
- * @brief rk_check_hdmi_uevents 
+ * @brief rk_check_hdmi_uevents
  *
  * @param buf
  * @param len

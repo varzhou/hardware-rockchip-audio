@@ -28,12 +28,14 @@ LOCAL_SRC_FILES := \
 	voice_preprocess.c \
 	audio_hw_hdmi.c
 LOCAL_C_INCLUDES += \
-	external/tinyalsa/include \
 	$(call include-path-for, audio-utils) \
 	$(call include-path-for, audio-route) \
 	$(call include-path-for, speex)
 
+
+LOCAL_HEADER_LIBRARIES += libhardware_headers
 LOCAL_CFLAGS := -Wno-unused-parameter
+LOCAL_CFLAGS += -DLIBTINYALSA_ENABLE_VNDK_EXT
 ifneq ($(filter box atv, $(strip $(TARGET_BOARD_PLATFORM_PRODUCT))), )
 LOCAL_CFLAGS += -DBOX_HAL
 endif

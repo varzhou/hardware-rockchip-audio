@@ -46,6 +46,8 @@
 #include "codec_config/config.h"
 #include "audio_bitstream.h"
 #include "audio_setting.h"
+#include <unistd.h>
+#include <fcntl.h>
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 

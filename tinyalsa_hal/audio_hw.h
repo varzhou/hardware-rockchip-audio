@@ -58,7 +58,7 @@
 
 #include <system/audio.h>
 
-#include <tinyalsa/asoundlib.h>
+#include "asoundlib.h"
 
 #include <audio_utils/resampler.h>
 #include <audio_route/audio_route.h>
