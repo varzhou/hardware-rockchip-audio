@@ -1482,35 +1482,39 @@ static int cal_data_slice(struct stream_out *out,void *data,int len,int times,bo
 static void set_data_slice(void *in_data,struct stream_out *out,size_t length)
 {
     //Resolve the broken sound when cut the table
-	int slice_mode = 0 ;
-	
-	char value[PROPERTY_VALUE_MAX];
-	property_get("media.audio.slice",value,"0");
-	if (atoi(value)>0)
-		slice_mode = atoi(value);
-	if(slice_mode ==1){
-		out->slice_time_up = 0;
-		ALOGD("for audio slice slicetime = %d,slice_mode =%d",out->slice_time_down,slice_mode);
-		cal_data_slice (out,(void *)in_data, length, out->slice_time_down,true);
-		out->slice_time_down++;
-	    if (out->slice_time_down >= 50){
-		   property_set("media.audio.slice","0");
-		   out->slice_time_down = 15;
-		}								 
-	}else if(slice_mode==2){
-		out->slice_time_down =0;
-	    if(out->slice_time_up==0)
-		   out->slice_time_up =15;
-	    ALOGD("for audio slice slicetime = %d,slice_mode =%d",out->slice_time_up,slice_mode);
-		cal_data_slice (out,(void *)in_data, length, out->slice_time_up,false);
-		out->slice_time_up--;
-		if (out->slice_time_up <= 0){
-		   property_set("media.audio.slice","0");
-	    }
-	}else{
-		out->slice_time_up =0;
-		out->slice_time_down =0;
-	}
+    int slice_mode = 0 ;
+
+    char value[PROPERTY_VALUE_MAX];
+    char value1[PROPERTY_VALUE_MAX];
+    property_get("media.audio.slice",value,"0");
+    property_get("ro.target.product",value1,"box");
+    if (atoi(value)>0)
+        slice_mode = atoi(value);
+    if(strstr(value1,"tablet"))
+        slice_mode = 0;
+    if(slice_mode ==1){
+        out->slice_time_up = 0;
+        ALOGD("for audio slice slicetime = %d,slice_mode =%d",out->slice_time_down,slice_mode);
+        cal_data_slice (out,(void *)in_data, length, out->slice_time_down,true);
+        out->slice_time_down++;
+        if (out->slice_time_down >= 50){
+            property_set("media.audio.slice","0");
+            out->slice_time_down = 15;
+        }
+    }else if(slice_mode==2){
+        out->slice_time_down =0;
+        if(out->slice_time_up==0)
+            out->slice_time_up =15;
+        ALOGD("for audio slice slicetime = %d,slice_mode =%d",out->slice_time_up,slice_mode);
+        cal_data_slice (out,(void *)in_data, length, out->slice_time_up,false);
+        out->slice_time_up--;
+        if (out->slice_time_up <= 0){
+            property_set("media.audio.slice","0");
+        }
+    }else{
+        out->slice_time_up =0;
+        out->slice_time_down =0;
+    }
 }
 
 /**
