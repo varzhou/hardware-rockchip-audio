@@ -119,9 +119,6 @@ int PCM_BT = 3;
 #define HW_PARAMS_FLAG_NLPCM 1
 
 
-#define DEFAULT_MODE 0
-#define HDMI_BITSTREAM_MODE 6
-#define SPDIF_PASSTHROUGH_MODE 8
 
 #ifdef USE_DRM
 #define HDMI_AUIOINFO_NODE      "/sys/class/drm/card0-HDMI-A-1/audioformat"
@@ -317,6 +314,15 @@ struct audio_device {
     rk_process_api* voice_api;
 #endif
 
+    /*
+     * hh@rock-chips.com
+     * this is for HDMI/SPDIF bitstream
+     * when HDMI/SPDIF bistream AC3/EAC3/DTS/TRUEHD/DTS-HD, some key tone or other pcm
+     * datas may come(play a Ac3 audio and seek the file to play). It is not allow to open sound card
+     * as pcm format and not allow to write pcm datas to HDMI/SPDIF sound cards when open it
+     * with config.flag = 1.
+     */
+    int*  owner[2];
 };
 
 struct stream_out {
