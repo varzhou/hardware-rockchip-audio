@@ -64,6 +64,9 @@ endif
 ifeq ($(strip $(TARGET_BOARD_PLATFORM)),rk3399)
     LOCAL_CFLAGS += -DRK3399
 endif
+ifeq ($(strip $(TARGET_BOARD_PLATFORM)),rk3399pro)
+    LOCAL_CFLAGS += -DRK3399
+endif
 ifeq ($(strip $(TARGET_BOARD_PLATFORM)),rk3128)
     LOCAL_CFLAGS += -DRK3128
 endif
