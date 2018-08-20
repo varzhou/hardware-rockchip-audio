@@ -627,8 +627,9 @@ static int start_output_stream(struct stream_out *out)
 
 #ifdef BOX_HAL
     read_snd_card_info();
+    bool speaker_support_samplerate = ((out->config.rate == 44100) || (out->config.rate == 48000));
     // box ouput pcm data to hdmi,speaker and spdif
-    if (out->config.flag == HW_PARAMS_FLAG_LPCM) {
+    if ((out->config.flag == HW_PARAMS_FLAG_LPCM) && (out->config.channels <= 2) && speaker_support_samplerate) {
         if (out->device & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
             out->device |= AUDIO_DEVICE_OUT_SPEAKER;
         }
