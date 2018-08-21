@@ -240,6 +240,7 @@ struct pcm_config pcm_config_in_bt = {
 #endif
 struct pcm_config pcm_config_in_remote_control = {
     .channels = 1,
+    .rate = 16000,
     .period_size = 120,
     .period_count = 4,
     .format = PCM_FORMAT_S16_LE,

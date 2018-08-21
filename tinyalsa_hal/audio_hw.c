@@ -2936,7 +2936,7 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
     int ret;
 
     ALOGD("audio hal adev_open_input_stream devices = 0x%x, flags = %d, config->samplerate = %d,config->channel_mask = %x",
-           devices, flags, config->sample_rate,config->channel_mask,config->channel_mask);
+           devices, flags, config->sample_rate,config->channel_mask);
 
     *stream_in = NULL;
 #ifdef ALSA_IN_DEBUG
