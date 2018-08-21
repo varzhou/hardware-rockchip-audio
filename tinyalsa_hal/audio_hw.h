@@ -85,6 +85,8 @@ int PCM_CARD = 0;
 int PCM_CARD_HDMI = 1;
 int PCM_CARD_SPDIF = 2;
 #endif
+int PCM_BT_MIC = 0; //Bluetooth remote control
+
 int PCM_BT = 3;
 #define PCM_TOTAL 4
 #define PCM_DEVICE 0
@@ -111,7 +113,7 @@ int PCM_BT = 3;
  * output only supports 1 (stereo) and the multi channel HDMI output 2 (5.1 and 7.1) */
 #define MAX_SUPPORTED_CHANNEL_MASKS 2
 
-#ifndef RK3368
+#ifndef BOX_HAL
 #define SPEEX_DENOISE_ENABLE
 #endif
 
@@ -236,6 +238,14 @@ struct pcm_config pcm_config_in_bt = {
     .flag = HW_PARAMS_FLAG_LPCM,
 };
 #endif
+struct pcm_config pcm_config_in_remote_control = {
+    .channels = 1,
+    .period_size = 120,
+    .period_count = 4,
+    .format = PCM_FORMAT_S16_LE,
+    .flag = HW_PARAMS_FLAG_LPCM,
+};
+
 struct pcm_config pcm_config_deep = {
     .channels = 2,
     .rate = 44100,
@@ -383,6 +393,8 @@ struct stream_in {
     struct pcm_config *config;
 
     struct audio_device *dev;
+    bool forVoiceRecognition;
+    bool isConnectRemoteControl;
 #ifdef SPEEX_DENOISE_ENABLE
     SpeexPreprocessState* mSpeexState;
     int mSpeexFrameSize;

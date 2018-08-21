@@ -557,6 +557,40 @@ static inline bool hasSpdif()
     return ret;
 }
 
+static inline bool read_bt_mic_info()
+{
+    int card_no = 0;
+    bool ret=false;
+    char buf[25] = "";
+    char snd_card_node[100]={0};
+    FILE *fd = NULL;
+    do{
+        sprintf(snd_card_node, "/proc/asound/card%d/id", card_no);
+        if (access(snd_card_node,F_OK) ==-1) break;
+
+        fd = fopen(snd_card_node,"r");
+        memset(buf, 0 ,sizeof(buf));
+
+        if (NULL == fd) {
+            break;
+        } else {
+            fread(buf,1,sizeof(buf),fd);
+        }
+
+        if (strstr(buf, "PT71600Audio")) {
+            PCM_BT_MIC = card_no;
+            ret = true;
+            break;
+        }
+
+        card_no++;
+    }while(1);
+
+    fclose(fd);
+    return ret;
+}
+
+
 #endif
 
 /**
@@ -783,7 +817,8 @@ static int get_next_buffer(struct resampler_buffer_provider *buffer_provider,
         in->frames_in = in->config->period_size;
 
         /* Do stereo to mono conversion in place by discarding right channel */
-        if (in->channel_mask == AUDIO_CHANNEL_IN_MONO) {
+        if ((in->channel_mask == AUDIO_CHANNEL_IN_MONO)
+                &&(in->config->channels == 2)) {
             //ALOGE("channel_mask = AUDIO_CHANNEL_IN_MONO");
             for (i = 0; i < in->frames_in; i++)
                 in->buffer[i] = in->buffer[i * 2];
@@ -819,6 +854,45 @@ static void release_buffer(struct resampler_buffer_provider *buffer_provider,
                               offsetof(struct stream_in, buf_provider));
 
     in->frames_in -= buffer->frame_count;
+}
+
+/**
+*this function for Bluetooth remote control enabled,
+*write buff to "/dev/hidraw" enable or disadle.
+**/
+void set_remote_control_mic_enabled(bool flag)
+{
+    const char *device = "/dev/hidraw";
+    char device_to_be_open[128];
+    char buf[256];
+    static int openfd,res;
+
+    memset(device_to_be_open,0x0,sizeof(device_to_be_open));
+    sprintf(device_to_be_open,"%s%d",device,0);
+    memset(buf,0x0,sizeof(buf));
+
+    openfd =open(device_to_be_open, O_RDWR);
+    if (openfd < 0) {
+        ALOGD("Unable to open device /dev/hidraw/");
+        return;
+    }
+    if (flag) {
+        buf[0]=0x04;   //Report ID 4
+        buf[1]=0x03;   //0x03 is used to enable audio
+    } else {
+        buf[0]=0x04;   //Report ID 4
+        buf[1]=0x00;   //0x00 is used to disadle audio
+    }
+
+    res = write(openfd,buf,2);
+
+    if (res < 0){
+        ALOGD("wirte to enadle audio fail\n");
+    } else {
+        ALOGD("wirte to enadle audio ok\n");
+    }
+
+    close(openfd);
 }
 
 /**
@@ -880,11 +954,22 @@ static int start_input_stream(struct stream_in *in)
         }
     }
 #else
-    in->pcm = pcm_open(PCM_CARD, PCM_DEVICE, PCM_IN, in->config);
+    if (in->forVoiceRecognition) {
+        set_remote_control_mic_enabled(true);
+    }
+    if (in->device & AUDIO_DEVICE_IN_BUILTIN_MIC) {
+        in->pcm = pcm_open(PCM_BT_MIC, PCM_DEVICE, PCM_IN, in->config);
+    } else {
+        in->pcm = pcm_open(PCM_CARD, PCM_DEVICE, PCM_IN, in->config);
+    }
 #endif
     if (in->pcm && !pcm_is_ready(in->pcm)) {
         ALOGE("pcm_open() failed: %s", pcm_get_error(in->pcm));
         pcm_close(in->pcm);
+        if (in->forVoiceRecognition) {
+            in->forVoiceRecognition = false;
+            set_remote_control_mic_enabled(false);
+        }
         return -ENOMEM;
     }
 
@@ -1238,11 +1323,11 @@ int out_dump(const struct audio_stream *stream, int fd)
 {
     struct stream_out *out = (struct stream_out *)stream;
 
-    ALOGD("Device     : 0x%x", out->device);
-    ALOGD("SampleRate : %d", out->config.rate);
-    ALOGD("Channels   : %d", out->config.channels);
-    ALOGD("Formate    : %d", out->config.format);
-    ALOGD("PreiodSize : %d", out->config.period_size);
+    ALOGD("out->Device     : 0x%x", out->device);
+    ALOGD("out->SampleRate : %d", out->config.rate);
+    ALOGD("out->Channels   : %d", out->config.channels);
+    ALOGD("out->Formate    : %d", out->config.format);
+    ALOGD("out->PreiodSize : %d", out->config.period_size);
 
     return 0;
 }
@@ -2032,13 +2117,13 @@ static int in_standby(struct audio_stream *stream)
  */
 int in_dump(const struct audio_stream *stream, int fd)
 {
-    struct stream_out *in = (struct stream_out *)stream;
+    struct stream_in *in = (struct stream_in *)stream;
 
-    ALOGD("Device     : 0x%x", in->device);
-    ALOGD("SampleRate : %d", in->config.rate);
-    ALOGD("Channels   : %d", in->config.channels);
-    ALOGD("Formate    : %d", in->config.format);
-    ALOGD("PreiodSize : %d", in->config.period_size);
+    ALOGD("in->Device     : 0x%x", in->device);
+    ALOGD("in->SampleRate : %d", in->config->rate);
+    ALOGD("in->Channels   : %d", in->config->channels);
+    ALOGD("in->Formate    : %d", in->config->format);
+    ALOGD("in->PreiodSize : %d", in->config->period_size);
 
     return 0;
 }
@@ -2850,7 +2935,8 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
     struct stream_in *in;
     int ret;
 
-
+    ALOGD("audio hal adev_open_input_stream devices = 0x%x, flags = %d, config->samplerate = %d,config->channel_mask = %x",
+           devices, flags, config->sample_rate,config->channel_mask,config->channel_mask);
 
     *stream_in = NULL;
 #ifdef ALSA_IN_DEBUG
@@ -2858,13 +2944,6 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
 #endif
     /* Respond with a request for mono if a different format is given. */
     //ALOGV("%s:config->channel_mask %d",__FUNCTION__,config->channel_mask);
-    if (/*config->channel_mask != AUDIO_CHANNEL_IN_MONO &&
-            config->channel_mask != AUDIO_CHANNEL_IN_FRONT_BACK*/
-        config->channel_mask != AUDIO_CHANNEL_IN_STEREO) {
-        config->channel_mask = AUDIO_CHANNEL_IN_STEREO;
-        ALOGE("%s:channel is not support",__FUNCTION__);
-        return -EINVAL;
-    }
 
     in = (struct stream_in *)calloc(1, sizeof(struct stream_in));
     if (!in)
@@ -2902,6 +2981,13 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
         pcm_config = &pcm_config_in_bt;
     }
 #endif
+    in->forVoiceRecognition = false;
+    in->isConnectRemoteControl = read_bt_mic_info();
+    if ((in->device & AUDIO_DEVICE_IN_BUILTIN_MIC) && in->isConnectRemoteControl) {
+        ALOGD("found Android TV remote mic Card connect!");
+        pcm_config = &pcm_config_in_remote_control;
+        in->forVoiceRecognition = true;
+    }
     in->config = pcm_config;
 
     in->buffer = malloc(pcm_config->period_size * pcm_config->channels
@@ -3000,11 +3086,18 @@ static void adev_close_input_stream(struct audio_hw_device *dev,
     struct stream_in *in = (struct stream_in *)stream;
     struct audio_device *adev = (struct audio_device *)dev;
 
+    ALOGD("%s",__FUNCTION__);
+
     in_standby(&stream->common);
     if (in->resampler) {
         release_resampler(in->resampler);
         in->resampler = NULL;
     }
+    if (in->forVoiceRecognition) {
+        in->forVoiceRecognition = false;
+        set_remote_control_mic_enabled(false);
+    }
+    PCM_BT_MIC =0;
 #ifdef ALSA_IN_DEBUG
     fclose(in_debug);
 #endif
