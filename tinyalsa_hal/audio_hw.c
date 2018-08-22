@@ -557,6 +557,9 @@ static inline bool hasSpdif()
     return ret;
 }
 
+
+#endif
+
 static inline bool read_bt_mic_info()
 {
     int card_no = 0;
@@ -590,8 +593,6 @@ static inline bool read_bt_mic_info()
     return ret;
 }
 
-
-#endif
 
 /**
  * @brief mixer_mode_set
