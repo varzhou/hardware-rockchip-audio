@@ -112,6 +112,7 @@ int PCM_BT = 3;
 /* maximum number of channel mask configurations supported. Currently the primary
  * output only supports 1 (stereo) and the multi channel HDMI output 2 (5.1 and 7.1) */
 #define MAX_SUPPORTED_CHANNEL_MASKS 2
+#define MAX_SUPPORTED_SAMPLE_RATES 2
 
 #ifndef BOX_HAL
 #define SPEEX_DENOISE_ENABLE
@@ -353,6 +354,7 @@ struct stream_out {
     audio_channel_mask_t channel_mask;
     /* Array of supported channel mask configurations. +1 so that the last entry is always 0 */
     audio_channel_mask_t supported_channel_masks[MAX_SUPPORTED_CHANNEL_MASKS + 1];
+    uint32_t supported_sample_rates[MAX_SUPPORTED_SAMPLE_RATES + 1];
     bool muted;
     uint64_t written; /* total frames written, not cleared when entering standby */
     uint64_t nframes;
@@ -394,6 +396,8 @@ struct stream_in {
     struct pcm_config *config;
 
     struct audio_device *dev;
+    audio_channel_mask_t supported_channel_masks[MAX_SUPPORTED_CHANNEL_MASKS + 1];
+    uint32_t supported_sample_rates[MAX_SUPPORTED_SAMPLE_RATES + 1];
     bool forVoiceRecognition;
     bool isConnectRemoteControl;
 #ifdef SPEEX_DENOISE_ENABLE
@@ -410,11 +414,14 @@ struct string_to_enum {
     uint32_t value;
 };
 
-const struct string_to_enum out_channels_name_to_enum_table[] = {
-    STRING_TO_ENUM(AUDIO_CHANNEL_OUT_STEREO),
+static const struct string_to_enum channels_name_to_enum_table[] = {
     STRING_TO_ENUM(AUDIO_CHANNEL_OUT_MONO),
+    STRING_TO_ENUM(AUDIO_CHANNEL_OUT_STEREO),
     STRING_TO_ENUM(AUDIO_CHANNEL_OUT_5POINT1),
     STRING_TO_ENUM(AUDIO_CHANNEL_OUT_7POINT1),
+    STRING_TO_ENUM(AUDIO_CHANNEL_IN_MONO),
+    STRING_TO_ENUM(AUDIO_CHANNEL_IN_STEREO),
+    STRING_TO_ENUM(AUDIO_CHANNEL_IN_FRONT_BACK),
 };
 
 enum {

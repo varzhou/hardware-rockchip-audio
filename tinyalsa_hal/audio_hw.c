@@ -262,12 +262,14 @@ static void start_bt_hfp(struct audio_device *adev)
                                  &pcm_config_hfp);
     if (adev->pcm_hfp_out && !pcm_is_ready(adev->pcm_hfp_out)) {
         ALOGE("pcm_open(HFP_OUT) failed: %s", pcm_get_error(adev->pcm_hfp_out));
+        adev->hfp_on_count--;
         goto err_hfp_out;
     }
     adev->pcm_hfp_in = pcm_open(PCM_CARD, PCM_DEVICE_HFP, PCM_IN,
                                 &pcm_config_hfp);
     if (adev->pcm_hfp_in && !pcm_is_ready(adev->pcm_hfp_in)) {
         ALOGE("pcm_open(HFP_IN) failed: %s", pcm_get_error(adev->pcm_hfp_in));
+        adev->hfp_on_count--;
         goto err_hfp_in;
     }
 
@@ -293,11 +295,17 @@ static void stop_bt_hfp(struct audio_device *adev)
     if (adev->hfp_on_count == 0 || --adev->hfp_on_count > 0)
         return;
 
-    pcm_stop(adev->pcm_hfp_out);
-    pcm_stop(adev->pcm_hfp_in);
+    if (adev->pcm_hfp_out != NULL)
+        pcm_stop(adev->pcm_hfp_out);
 
-    pcm_close(adev->pcm_hfp_out);
-    pcm_close(adev->pcm_hfp_in);
+    if (adev->pcm_hfp_in != NULL)
+        pcm_stop(adev->pcm_hfp_in);
+
+    if (adev->pcm_hfp_out != NULL)
+        pcm_close(adev->pcm_hfp_out);
+
+    if (adev->pcm_hfp_in != NULL)
+        pcm_close(adev->pcm_hfp_in);
 }
 
 /**
@@ -1363,6 +1371,13 @@ static int out_set_parameters(struct audio_stream *stream, const char *kvpairs)
         val = atoi(value);
         out->aud_config.channel_mask = val;
     }
+    // set sample rate
+    ret = str_parms_get_str(parms, AUDIO_PARAMETER_STREAM_SAMPLING_RATE,
+                            value, sizeof(value));
+    if (ret >= 0) {
+        val = atoi(value);
+        out->aud_config.sample_rate = val;
+    }
 
     ret = str_parms_get_str(parms, AUDIO_PARAMETER_STREAM_ROUTING,
                             value, sizeof(value));
@@ -1422,9 +1437,14 @@ static int out_get_hdmi_support_format(char* buf,int size)
 }
 
 /*
- * query support formats
+ * function: get support formats
+ * Query supported formats. The response is a '|' separated list of strings from audio_format_t enum
+ *  e.g: "sup_formats=AUDIO_FORMAT_PCM_16_BIT"
  */
-static int out_query_formats(const struct audio_stream *stream,struct str_parms *query,struct str_parms *reply)
+
+static int stream_get_parameter_formats(const struct audio_stream *stream,
+                                    struct str_parms *query,
+                                    struct str_parms *reply)
 {
     struct stream_out *out = (struct stream_out *)stream;
     int avail = 1024;
@@ -1464,24 +1484,34 @@ static int out_query_formats(const struct audio_stream *stream,struct str_parms 
     return -1;
 }
 
-static int out_query_channel(const struct audio_stream *stream,struct str_parms *query,struct str_parms *reply)
+
+/*
+ * function: get support channels
+ * Query supported channel masks. The response is a '|' separated list of strings from
+ * audio_channel_mask_t enum
+ * e.g: "sup_channels=AUDIO_CHANNEL_OUT_STEREO|AUDIO_CHANNEL_OUT_MONO"
+ */
+
+static int stream_get_parameter_channels(struct str_parms *query,
+                                    struct str_parms *reply,
+                                    audio_channel_mask_t *supported_channel_masks)
 {
-    struct stream_out *out = (struct stream_out *)stream;
     char value[1024];
     size_t i, j;
     bool first = true;
+
     if(str_parms_has_key(query, AUDIO_PARAMETER_STREAM_SUP_CHANNELS)){
-        if(out->device & AUDIO_DEVICE_OUT_AUX_DIGITAL){
-       //     out_read_hdmi_edid(out);
-        }
+        value[0] = '\0';
+        i = 0;
         /* the last entry in supported_channel_masks[] is always 0 */
-        while (out->supported_channel_masks[i] != 0) {
-            for (j = 0; j < ARRAY_SIZE(out_channels_name_to_enum_table); j++) {
-                if (out_channels_name_to_enum_table[j].value == out->supported_channel_masks[i]) {
+        while (supported_channel_masks[i] != 0) {
+            for (j = 0; j < ARRAY_SIZE(channels_name_to_enum_table); j++) {
+                if (channels_name_to_enum_table[j].value == supported_channel_masks[i]) {
                     if (!first) {
                         strcat(value, "|");
                     }
-                    strcat(value, out_channels_name_to_enum_table[j].name);
+
+                    strcat(value, channels_name_to_enum_table[j].name);
                     first = false;
                     break;
                 }
@@ -1495,6 +1525,43 @@ static int out_query_channel(const struct audio_stream *stream,struct str_parms 
     return -1;
 }
 
+/*
+ * function: get support sample_rates
+ * Query supported sampling rates. The response is a '|' separated list of integer values
+ * e.g: ""sup_sampling_rates=44100|48000"
+ */
+
+static int stream_get_parameter_rates(struct str_parms *query,
+                                struct str_parms *reply,
+                                uint32_t *supported_sample_rates)
+{
+    char value[256];
+    int ret = -1;
+
+    if (str_parms_has_key(query, AUDIO_PARAMETER_STREAM_SUP_SAMPLING_RATES)) {
+        value[0] = '\0';
+        int cursor = 0;
+        int i = 0;
+        while(supported_sample_rates[i]){
+            int avail = sizeof(value) - cursor;
+            ret = snprintf(value + cursor, avail, "%s%d",
+                           cursor > 0 ? "|" : "",
+                           supported_sample_rates[i]);
+
+            if (ret < 0 || ret > avail){
+                value[cursor] = '\0';
+                break;
+            }
+
+            cursor += ret;
+            ++i;
+        }
+        str_parms_add_str(reply, AUDIO_PARAMETER_STREAM_SUP_SAMPLING_RATES, value);
+        return 0;
+    }
+    return -1;
+}
+
 /**
  * @brief out_get_parameters
  *
@@ -1505,17 +1572,18 @@ static int out_query_channel(const struct audio_stream *stream,struct str_parms 
  */
 static char * out_get_parameters(const struct audio_stream *stream, const char *keys)
 {
-    ALOGV("%s: keys = %s", __func__, keys);
+    ALOGD("%s: keys = %s", __func__, keys);
 
     struct stream_out *out = (struct stream_out *)stream;
     struct str_parms *query = str_parms_create_str(keys);
     char *str = NULL;
     struct str_parms *reply = str_parms_create();
 
-    ALOGD("%s: keys = %s,out = %p", __func__, keys,out);
-    if(out_query_formats(stream,query,reply) == 0){
+    if (stream_get_parameter_formats(stream,query,reply) == 0) {
         str = str_parms_to_str(reply);
-    }else if (out_query_channel(stream,query,reply) == 0) {
+    } else if (stream_get_parameter_channels(query, reply, &out->supported_channel_masks[0]) == 0) {
+        str = str_parms_to_str(reply);
+    } else if (stream_get_parameter_rates(query, reply, &out->supported_sample_rates[0]) == 0) {
         str = str_parms_to_str(reply);
     } else {
         ALOGD("%s,str_parms_get_str failed !",__func__);
@@ -1524,6 +1592,8 @@ static char * out_get_parameters(const struct audio_stream *stream, const char *
 
     str_parms_destroy(query);
     str_parms_destroy(reply);
+
+    ALOGV("%s,exit -- str = %s",__func__,str);
     return str;
 }
 
@@ -2155,6 +2225,21 @@ static int in_set_parameters(struct audio_stream *stream, const char *kvpairs)
 
     parms = str_parms_create_str(kvpairs);
 
+    //set channel_mask
+    ret = str_parms_get_str(parms, AUDIO_PARAMETER_STREAM_CHANNELS,
+                            value, sizeof(value));
+    if (ret >= 0) {
+        val = atoi(value);
+        in->channel_mask = val;
+    }
+     // set sample rate
+    ret = str_parms_get_str(parms, AUDIO_PARAMETER_STREAM_SAMPLING_RATE,
+                            value, sizeof(value));
+    if (ret >= 0) {
+        val = atoi(value);
+        in->requested_rate = val;
+    }
+
     pthread_mutex_lock(&in->lock);
     pthread_mutex_lock(&adev->lock);
     ret = str_parms_get_str(parms, AUDIO_PARAMETER_STREAM_INPUT_SOURCE,
@@ -2212,7 +2297,29 @@ static int in_set_parameters(struct audio_stream *stream, const char *kvpairs)
 static char * in_get_parameters(const struct audio_stream *stream,
                                 const char *keys)
 {
-    return strdup("");
+    ALOGD("%s: keys = %s", __func__, keys);
+
+    struct stream_in *in = (struct stream_in *)stream;
+    struct str_parms *query = str_parms_create_str(keys);
+    char *str = NULL;
+    struct str_parms *reply = str_parms_create();
+
+    if (stream_get_parameter_formats(stream,query,reply) == 0) {
+        str = str_parms_to_str(reply);
+    } else if (stream_get_parameter_channels(query, reply, &in->supported_channel_masks[0]) == 0) {
+        str = str_parms_to_str(reply);
+    } else if (stream_get_parameter_rates(query, reply, &in->supported_sample_rates[0]) == 0) {
+        str = str_parms_to_str(reply);
+    } else {
+        ALOGD("%s,str_parms_get_str failed !",__func__);
+        str = strdup("");
+    }
+
+    str_parms_destroy(query);
+    str_parms_destroy(reply);
+
+    ALOGV("%s,exit -- str = %s",__func__,str);
+    return str;
 }
 
 /**
@@ -2439,6 +2546,34 @@ static int in_remove_audio_effect(const struct audio_stream *stream,
     return 0;
 }
 
+static int adev_get_microphones(const struct audio_hw_device *dev,
+                         struct audio_microphone_characteristic_t *mic_array,
+                         size_t *mic_count)
+{
+    struct audio_device *adev = (struct audio_device *)dev;
+    size_t actual_mic_count = 0;
+
+    int card_no = 0;
+
+    char snd_card_node_id[100]={0};
+    char snd_card_node_cap[100]={0};
+
+    do{
+        sprintf(snd_card_node_id, "/proc/asound/card%d/id", card_no);
+        if (access(snd_card_node_id,F_OK) == -1) break;
+
+        sprintf(snd_card_node_cap, "/proc/asound/card%d/pcm0c/info", card_no);
+        if (access(snd_card_node_cap,F_OK) == -1) continue;
+
+        actual_mic_count++;
+    }while(++card_no);
+
+    ALOGD("%s,get capture mic actual_mic_count =%d",__func__,actual_mic_count);
+    *mic_count = actual_mic_count;
+    return 0;
+}
+
+
 /**
  * @brief adev_open_output_stream
  *
@@ -2472,8 +2607,15 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     if (!out)
         return -ENOMEM;
 
+    /*get default supported channel_mask*/
+    memset(out->supported_channel_masks, 0, sizeof(out->supported_channel_masks));
     out->supported_channel_masks[0] = AUDIO_CHANNEL_OUT_STEREO;
     out->supported_channel_masks[1] = AUDIO_CHANNEL_OUT_MONO;
+    /*get default supported sample_rate*/
+    memset(out->supported_sample_rates, 0, sizeof(out->supported_sample_rates));
+    out->supported_sample_rates[0] = 44100;
+    out->supported_sample_rates[1] = 48000;
+
     if(config != NULL)
         memcpy(&(out->aud_config),config,sizeof(struct audio_config));
     out->channel_mask = AUDIO_CHANNEL_OUT_STEREO;
@@ -2686,6 +2828,66 @@ static void adev_close_output_stream(struct audio_hw_device *dev,
     free(stream);
 }
 
+static int hfp_enable(struct audio_device *adev, char *value)
+{
+    int ret = 0;
+
+    if ((strcmp(value, "true") == 0) || (strcmp(value, "on") == 0)) {
+        ALOGD("Enable HFP client feature!");
+        route_pcm_open(SPEAKER_INCALL_ROUTE);
+        start_bt_hfp(adev);
+    } else if ((strcmp(value, "false") == 0)||(strcmp(value, "off") == 0)) {
+        ALOGD("Disable HFP client feature!");
+        stop_bt_hfp(adev);
+        route_pcm_open(INCALL_OFF_ROUTE);
+    } else {
+        ALOGE("Unknown HFP client state %s!!!", value);
+        ret = -EINVAL;
+    }
+
+    return ret;
+}
+
+
+static int HDMIin_enable(struct audio_device *adev, char *value, char *buf)
+{
+    int ret = 0;
+
+    if (strcmp(value, "true") == 0) {
+        adev->pcm_hdmiin_out = pcm_open(PCM_CARD, PCM_DEVICE_HDMIIN,
+                                   PCM_OUT | PCM_MONOTONIC, &pcm_config);
+
+        if (adev->pcm_hdmiin_out && !pcm_is_ready(adev->pcm_hdmiin_out)) {
+            ALOGE("adev->pcm_hdmiin_out failed: %s",pcm_get_error(adev->pcm_hdmiin_out));
+            pcm_close(adev->pcm_hdmiin_out);
+            ret = -ENOMEM;
+        }
+
+        adev->hdmiin_state = true;
+        route_pcm_open(HDMI_IN_NORMAL_ROUTE);
+        pcm_write(adev->pcm_hdmiin_out, buf, 10);
+        ALOGD("Enable HDMIin");
+    } else if (strcmp(value, "false") == 0) {
+        route_pcm_open(HDMI_IN_OFF_ROUTE);
+
+        if (adev->pcm_hdmiin_in) {
+            pcm_close(adev->pcm_hdmiin_in);
+        }
+
+        if (adev->pcm_hdmiin_out) {
+            pcm_close(adev->pcm_hdmiin_out);
+        }
+
+        adev->hdmiin_state = false;
+        ALOGD("Disable HDMIin");
+    } else {
+        ALOGE("Unknown HDMIin state %s!!!", value);
+        ret = -EINVAL;
+    }
+
+    return ret;
+}
+
 /**
  * @brief adev_set_parameters
  *
@@ -2709,53 +2911,17 @@ static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
 
     if (0 == ret) {
       /* HFP client enable/disable */
-      val = str_parms_get_str(parms, "hfp_enable", value, sizeof(value));
-      if (0 <= val) {
-         if (strcmp(value, "true") == 0) {
-           ALOGD("Enable HFP client feature!");
-	   route_pcm_open(SPEAKER_INCALL_ROUTE);
-	   start_bt_hfp(adev);
-         } else if (strcmp(value, "false") == 0) {
-           ALOGD("Disable HFP client feature!");
-	   stop_bt_hfp(adev);
-	   route_pcm_open(INCALL_OFF_ROUTE);
-         } else {
-           ALOGE("Unknown HFP client state %s!!!", value);
-           ret = -EINVAL;
-         }
-      }
-      /* HDMIin enable/disable */
-      val = str_parms_get_str(parms, "HDMIin_enable", value, sizeof(value));
-      if (0 <= val) {
-         if (strcmp(value, "true") == 0) {
-		 adev->pcm_hdmiin_out = pcm_open(PCM_CARD, PCM_DEVICE_HDMIIN,
-				 PCM_OUT | PCM_MONOTONIC, &pcm_config);
-		 if (adev->pcm_hdmiin_out && !pcm_is_ready(adev->pcm_hdmiin_out)) {
-			 ALOGE("adev->pcm_hdmiin_out failed: %s",
-					 pcm_get_error(adev->pcm_hdmiin_out));
-			 pcm_close(adev->pcm_hdmiin_out);
-			 ret = -ENOMEM;
-		 }
-		 adev->hdmiin_state = true;
-		 route_pcm_open(HDMI_IN_NORMAL_ROUTE);
-		 pcm_write(adev->pcm_hdmiin_out, buf, 10);
-		 ALOGD("Enable HDMIin");
-	 } else if (strcmp(value, "false") == 0) {
-		 route_pcm_open(HDMI_IN_OFF_ROUTE);
-		 if (adev->pcm_hdmiin_in) {
-			 pcm_close(adev->pcm_hdmiin_in);
-		 }
+        val = str_parms_get_str(parms, "hfp_enable", value, sizeof(value));
 
-		 if (adev->pcm_hdmiin_out) {
-			 pcm_close(adev->pcm_hdmiin_out);
-		 }
-		 adev->hdmiin_state = false;
-		 ALOGD("Disable HDMIin");
-	 } else {
-           ALOGE("Unknown HDMIin state %s!!!", value);
-           ret = -EINVAL;
-         }
-      }
+        if (0 <= val) {
+            ret = hfp_enable(adev, &value[0]);
+        }
+      /* HDMIin enable/disable */
+        val = str_parms_get_str(parms, "HDMIin_enable", value, sizeof(value));
+
+        if (0 <= val) {
+            ret = HDMIin_enable(adev, &value[0], &buf[0]);
+        }
     }
 
     pthread_mutex_unlock(&adev->lock);
@@ -2949,6 +3115,15 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
     in = (struct stream_in *)calloc(1, sizeof(struct stream_in));
     if (!in)
         return -ENOMEM;
+
+    /*get default supported channel_mask*/
+    memset(in->supported_channel_masks, 0, sizeof(in->supported_channel_masks));
+    in->supported_channel_masks[0] = AUDIO_CHANNEL_IN_STEREO;
+    in->supported_channel_masks[1] = AUDIO_CHANNEL_IN_MONO;
+    /*get default supported sample_rate*/
+    memset(in->supported_sample_rates, 0, sizeof(in->supported_sample_rates));
+    in->supported_sample_rates[0] = 44100;
+    in->supported_sample_rates[1] = 48000;
 
     in->stream.common.get_sample_rate = in_get_sample_rate;
     in->stream.common.set_sample_rate = in_set_sample_rate;
@@ -3157,6 +3332,37 @@ static int adev_close(hw_device_t *device)
     return 0;
 }
 
+static void adev_open_init(struct audio_device *adev)
+{
+    ALOGD("%s",__func__);
+    adev->mic_mute = false;
+    adev->hdmiin_state = false;
+    adev->sco_on_count = 0;
+    adev->hfp_on_count = 0;
+    adev->hdmi_drv_fd = -1;
+
+#ifdef AUDIO_3A
+    adev->voice_api = NULL;
+#endif
+
+    adev->input_source = AUDIO_SOURCE_DEFAULT;
+
+    for(int i =0; i < OUTPUT_TOTAL; i++){
+        adev->outputs[i] = NULL;
+    }
+
+    adev->owner[0] = NULL;
+    adev->owner[1] = NULL;
+
+    char value[PROPERTY_VALUE_MAX];
+    if (property_get("audio_hal.period_size", value, NULL) > 0) {
+        pcm_config.period_size = atoi(value);
+        pcm_config_in.period_size = pcm_config.period_size;
+    }
+    if (property_get("audio_hal.in_period_size", value, NULL) > 0)
+        pcm_config_in.period_size = atoi(value);
+}
+
 /**
  * @brief adev_open
  *
@@ -3200,35 +3406,14 @@ static int adev_open(const hw_module_t* module, const char* name,
     adev->hw_device.open_input_stream = adev_open_input_stream;
     adev->hw_device.close_input_stream = adev_close_input_stream;
     adev->hw_device.dump = adev_dump;
-
+    adev->hw_device.get_microphones = adev_get_microphones;
     //adev->ar = audio_route_init(MIXER_CARD, NULL);
     route_init();
-
-    adev->input_source = AUDIO_SOURCE_DEFAULT;
     /* adev->cur_route_id initial value is 0 and such that first device
      * selection is always applied by select_devices() */
-
-    adev->hdmi_drv_fd = -1;
-#ifdef AUDIO_3A
-    adev->voice_api = NULL;
-#endif
-
     *device = &adev->hw_device.common;
-    for(int i =0; i < OUTPUT_TOTAL; i++){
-        adev->outputs[i] = NULL;
-    }
 
-    adev->owner[0] = NULL;
-    adev->owner[1] = NULL;
-
-    char value[PROPERTY_VALUE_MAX];
-    if (property_get("audio_hal.period_size", value, NULL) > 0) {
-        pcm_config.period_size = atoi(value);
-        pcm_config_in.period_size = pcm_config.period_size;
-    }
-    if (property_get("audio_hal.in_period_size", value, NULL) > 0)
-        pcm_config_in.period_size = atoi(value);
-
+    adev_open_init(adev);
     read_snd_card_info();
     return 0;
 }
