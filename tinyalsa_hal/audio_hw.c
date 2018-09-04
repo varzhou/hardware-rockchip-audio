@@ -418,7 +418,7 @@ static int read_hdmi_audioinfo(void)
         fread(buf, 1, PROPERTY_VALUE_MAX, fd);
         fclose(fd);
     }
-    property_set(MEDIA_SINK_AUDIO, buf);
+
     return 0;
 }
 
@@ -1731,7 +1731,7 @@ static int cal_data_slice(struct stream_out *out,void *data,int len,int times,bo
 		float tmp = (float)(*(raw+len));
 		if (down)
 			tmp *=(volume_slice[times] -
-			          (volume_slice[times]-volume_slice[times+1]*(1-get_len_posi(out,len))));
+			          ((volume_slice[times]-volume_slice[times+1])*(1-get_len_posi(out,len))));
 		else{
 			if (times >=1)
 				tmp *=(volume_slice[times] +
@@ -1745,39 +1745,29 @@ static int cal_data_slice(struct stream_out *out,void *data,int len,int times,bo
     return 0;
 }
 
-static void set_data_slice(void *in_data,struct stream_out *out,size_t length)
+static void set_data_slice(struct audio_device *adev, void *in_data,struct stream_out *out, size_t length)
 {
     //Resolve the broken sound when cut the table
-    int slice_mode = 0 ;
-
-    char value[PROPERTY_VALUE_MAX];
-    char value1[PROPERTY_VALUE_MAX];
-    property_get("media.audio.slice",value,"0");
-    property_get("ro.target.product",value1,"box");
-    if (atoi(value)>0)
-        slice_mode = atoi(value);
-    if(strstr(value1,"tablet"))
-        slice_mode = 0;
-    if(slice_mode ==1){
+    if (adev->slice_mode == 1) {
         out->slice_time_up = 0;
-        ALOGD("for audio slice slicetime = %d,slice_mode =%d",out->slice_time_down,slice_mode);
-        cal_data_slice (out,(void *)in_data, length, out->slice_time_down,true);
+        ALOGD("for audio slice slicetime = %d,slice_mode =%d",out->slice_time_down,adev->slice_mode);
+        cal_data_slice (out,(void *)in_data, length, out->slice_time_down, true);
         out->slice_time_down++;
-        if (out->slice_time_down >= 50){
-            property_set("media.audio.slice","0");
+        if (out->slice_time_down >= 50) {
+            adev->slice_mode = 0;
             out->slice_time_down = 15;
         }
-    }else if(slice_mode==2){
-        out->slice_time_down =0;
-        if(out->slice_time_up==0)
-            out->slice_time_up =15;
-        ALOGD("for audio slice slicetime = %d,slice_mode =%d",out->slice_time_up,slice_mode);
-        cal_data_slice (out,(void *)in_data, length, out->slice_time_up,false);
+    } else if (adev->slice_mode == 2) {
+        out->slice_time_down = 0;
+        if (out->slice_time_up == 0)
+            out->slice_time_up = 15;
+        ALOGD("for audio slice slicetime = %d,slice_mode =%d",out->slice_time_up,adev->slice_mode);
+        cal_data_slice (out,(void *)in_data, length, out->slice_time_up, false);
         out->slice_time_up--;
-        if (out->slice_time_up <= 0){
-            property_set("media.audio.slice","0");
+        if (out->slice_time_up <= 0) {
+            adev->slice_mode = 0;
         }
-    }else{
+    } else {
         out->slice_time_up =0;
         out->slice_time_down =0;
     }
@@ -1809,12 +1799,6 @@ static ssize_t out_write(struct audio_stream_out *stream, const void* buffer,
      */
     out->out_data_size = bytes;
     char value[PROPERTY_VALUE_MAX];
-
-    property_get("media.audio.reset", value, NULL);
-    if (atoi(value) > 0) {
-        reset_bitstream_buf(out);
-        property_set("media.audio.reset", "0");
-    }
 
     pthread_mutex_lock(&out->lock);
     if (out->standby) {
@@ -1848,14 +1832,17 @@ false_alarm:
         memset(out->bitstream_buffer, 0x00, newbytes);
         fill_hdmi_bitstream_buf((void *)buffer, (void *)out->bitstream_buffer,(void*)out->channel_buffer, (int)bytes);
     }
-#endif    
+#endif
 
     if (out->muted)
         memset((void *)buffer, 0, bytes);
-	
-	if (!out->output_direct){
-		set_data_slice((void *)buffer,out,bytes);
-	}
+
+#ifdef BOX_HAL
+    if (!out->output_direct) {
+        set_data_slice(adev, (void *)buffer, out, bytes);
+    }
+#endif
+
 #ifdef AUDIO_3A
     if (adev->voice_api != NULL) {
         int ret = 0;
@@ -1867,7 +1854,7 @@ false_alarm:
     }
 #endif
 
-    property_get("media.audio.record", value, NULL);
+    property_get("vendor.audio.record", value, NULL);
     prop_pcm = atoi(value);
     if (prop_pcm > 0) {
         dump_out_data(buffer, bytes, &prop_pcm);
@@ -2630,7 +2617,7 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     if (flags & AUDIO_OUTPUT_FLAG_DIRECT) {
         if (devices & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
             if(!isPcm) {// !isPcm && (config->format == AUDIO_FORMAT_IEC61937)
-                ALOGD("%s: HDMI bitream",__FUNCTION__);
+                ALOGD("%s: HDMI Bitstream",__FUNCTION__);
                 out->channel_mask = config->channel_mask;
                 if (isValidSamplerate(config->sample_rate)) {
                     out->config = pcm_config_direct;
@@ -2912,15 +2899,23 @@ static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
     if (0 == ret) {
       /* HFP client enable/disable */
         val = str_parms_get_str(parms, "hfp_enable", value, sizeof(value));
-
         if (0 <= val) {
             ret = hfp_enable(adev, &value[0]);
         }
       /* HDMIin enable/disable */
         val = str_parms_get_str(parms, "HDMIin_enable", value, sizeof(value));
-
         if (0 <= val) {
             ret = HDMIin_enable(adev, &value[0], &buf[0]);
+        }
+
+        val = str_parms_get_str(parms, "slice-weakly", value, sizeof(value));
+        if (0 <= val) {
+            adev->slice_mode = 1;
+        }
+
+        val = str_parms_get_str(parms, "slice-increacely", value, sizeof(value));
+        if (0 <= val) {
+            adev->slice_mode = 2;
         }
     }
 
@@ -3340,6 +3335,7 @@ static void adev_open_init(struct audio_device *adev)
     adev->sco_on_count = 0;
     adev->hfp_on_count = 0;
     adev->hdmi_drv_fd = -1;
+    adev->slice_mode = 0;
 
 #ifdef AUDIO_3A
     adev->voice_api = NULL;
@@ -3355,11 +3351,11 @@ static void adev_open_init(struct audio_device *adev)
     adev->owner[1] = NULL;
 
     char value[PROPERTY_VALUE_MAX];
-    if (property_get("audio_hal.period_size", value, NULL) > 0) {
+    if (property_get("vendor.audio.period_size", value, NULL) > 0) {
         pcm_config.period_size = atoi(value);
         pcm_config_in.period_size = pcm_config.period_size;
     }
-    if (property_get("audio_hal.in_period_size", value, NULL) > 0)
+    if (property_get("vendor.audio.in_period_size", value, NULL) > 0)
         pcm_config_in.period_size = atoi(value);
 }
 

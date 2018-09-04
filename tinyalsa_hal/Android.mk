@@ -20,7 +20,6 @@ LOCAL_MODULE := audio.primary.$(TARGET_BOARD_HARDWARE)
 LOCAL_PROPRIETARY_MODULE := true
 LOCAL_MODULE_RELATIVE_PATH := hw
 LOCAL_SRC_FILES := \
-        audio_setting.c \
 	audio_bitstream.c \
 	audio_hw.c \
 	alsa_route.c \

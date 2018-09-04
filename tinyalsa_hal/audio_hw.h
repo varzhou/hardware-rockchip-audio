@@ -133,7 +133,6 @@ int PCM_BT = 3;
 #define SND_CARD0_NODE          "/proc/asound/card0/id"
 #define SND_CARD1_NODE          "/proc/asound/card1/id"
 #define SND_CARD2_NODE          "/proc/asound/card2/id"
-#define MEDIA_SINK_AUDIO        "media.sink.audio"
 
 #ifdef BOX_HAL
 struct pcm_config pcm_config = {
@@ -322,6 +321,7 @@ struct audio_device {
     int pre_output_device_id;
     int pre_input_source_id;
     unsigned int mode;
+    int slice_mode;               /*get set_data_slice mode*/
 #ifdef AUDIO_3A
     rk_process_api* voice_api;
 #endif

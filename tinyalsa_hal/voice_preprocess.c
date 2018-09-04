@@ -550,7 +550,7 @@ static void thread_loop(rk_voice_handle* handle)
         }
 
         char value[PROPERTY_VALUE_MAX] = "";
-        property_get("media.audio.record", value, NULL);
+        property_get("vendor.audio.record", value, NULL);
         prop_pcm_record = atoi(value);
 
         // try to get the raw buffer to process
