@@ -2544,6 +2544,7 @@ static int adev_get_microphones(const struct audio_hw_device *dev,
 
     char snd_card_node_id[100]={0};
     char snd_card_node_cap[100]={0};
+    char address[32] = "bottom";
 
     do{
         sprintf(snd_card_node_id, "/proc/asound/card%d/id", card_no);
@@ -2554,6 +2555,9 @@ static int adev_get_microphones(const struct audio_hw_device *dev,
 
         actual_mic_count++;
     }while(++card_no);
+
+    mic_array->device = -2147483644;
+    strcpy(mic_array->address,address);
 
     ALOGD("%s,get capture mic actual_mic_count =%d",__func__,actual_mic_count);
     *mic_count = actual_mic_count;
