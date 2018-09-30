@@ -41,7 +41,6 @@
 
 #include "alsa_audio.h"
 #include "audio_hw.h"
-#include "audio_hw_hdmi.h"
 #include <system/audio.h>
 #include "codec_config/config.h"
 #include "audio_bitstream.h"
@@ -52,20 +51,19 @@
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
 struct SurroundFormat {
-    const char *name;
+    audio_format_t format;
     const char *value;
 };
 
 
 const struct SurroundFormat sSurroundFormat[] = {
-    {"AC3","AUDIO_FORMAT_AC3"},
-    {"E-AC3","AUDIO_FORMAT_E_AC3"},
-    {"DTS","AUDIO_FORMAT_DTS"},
-    {"DTS-HD","AUDIO_FORMAT_DTS_HD"},
-    {"AAC-LC","AUDIO_FORMAT_AAC_LC"},
-    {"MLP","AUDIO_FORMAT_DOLBY_TRUEHD"},
-  //  {"E-AC3-joc","AUDIO_FORMAT_E_AC3_JOC"},
-    {NULL,NULL},
+    {AUDIO_FORMAT_AC3,"AUDIO_FORMAT_AC3"},
+    {AUDIO_FORMAT_E_AC3,"AUDIO_FORMAT_E_AC3"},
+    {AUDIO_FORMAT_DTS,"AUDIO_FORMAT_DTS"},
+    {AUDIO_FORMAT_DTS_HD,"AUDIO_FORMAT_DTS_HD"},
+    {AUDIO_FORMAT_AAC_LC,"AUDIO_FORMAT_AAC_LC"},
+    {AUDIO_FORMAT_DOLBY_TRUEHD,"AUDIO_FORMAT_DOLBY_TRUEHD"},
+    {AUDIO_FORMAT_AC4,"AUDIO_FORMAT_E_AC3_JOC"}
 };
 
 enum SOUND_CARD_OWNER{
@@ -1442,22 +1440,6 @@ static int out_set_parameters(struct audio_stream *stream, const char *kvpairs)
 
 }
 
-static int out_get_hdmi_support_format(char* buf,int size)
-{
-    FILE *file = fopen(HDMI_AUIOINFO_NODE, "r");
-    memset(buf, 0, size);
-    if (file != NULL) {
-        fread(buf, 1, size, file);
-        ALOGD("out_get_hdmi_support_format: hehua :BUF: %s\n", buf);
-        fclose(file);
-
-        return 0;
-    }else{
-        ALOGE("%s: fail get hdmi support fomat ,errno = %s",__FUNCTION__,strerror(errno));
-    }
-    return -1;
-}
-
 /*
  * function: get support formats
  * Query supported formats. The response is a '|' separated list of strings from audio_format_t enum
@@ -1471,7 +1453,6 @@ static int stream_get_parameter_formats(const struct audio_stream *stream,
     struct stream_out *out = (struct stream_out *)stream;
     int avail = 1024;
     char value[avail];
-    char buffer[avail];
     if (str_parms_has_key(query, AUDIO_PARAMETER_STREAM_SUP_FORMATS)) {
         memset(value,0,avail);
         // set support pcm 16 bit default
@@ -1479,22 +1460,17 @@ static int stream_get_parameter_formats(const struct audio_stream *stream,
 
         // get the format can be bistream?
         if(out->device & AUDIO_DEVICE_OUT_AUX_DIGITAL){
-            if(out_get_hdmi_support_format(buffer,avail) == 0){
-                int cursor = strlen(value);
-                size_t i = 0;
-                while(sSurroundFormat[i].name){
-                    if(strstr(buffer,sSurroundFormat[i].name)){
-                        avail -= cursor;
-                        int length = snprintf(value + cursor, avail, "%s%s",
-                                       cursor > 0 ? "|" : "",
-                                       sSurroundFormat[i].value);
-                        if (length < 0 || length >= avail) {
-                            break;
-                        }
-                        cursor += length;
+            int cursor = strlen(value);
+            for(int i = 0; i < ARRAY_SIZE(sSurroundFormat); i++){
+                if(is_support_format(&out->hdmi_audio,sSurroundFormat[i].format)){
+                    avail -= cursor;
+                    int length = snprintf(value + cursor, avail, "%s%s",
+                                   cursor > 0 ? "|" : "",
+                                   sSurroundFormat[i].value);
+                    if (length < 0 || length >= avail) {
+                        break;
                     }
-
-                    i++;
+                    cursor += length;
                 }
             }
         }
@@ -2639,6 +2615,8 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     out->output_direct = false;
     out->channel_buffer = NULL;
     out->bitstream_buffer = NULL;
+    init_hdmi_audio(&out->hdmi_audio);
+    parse_hdmi_audio(&out->hdmi_audio);
 
     if (flags & AUDIO_OUTPUT_FLAG_DIRECT) {
         if (devices & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
@@ -2798,7 +2776,10 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     return 0;
 
 err_open:
-    free(out);
+    if(out != NULL) {
+        destory_hdmi_audio(&out->hdmi_audio);
+        free(out);
+    }
     *stream_out = NULL;
     return ret;
 }
@@ -2836,6 +2817,8 @@ static void adev_close_output_stream(struct audio_hw_device *dev,
             free(out->channel_buffer);
             out->channel_buffer = NULL;
         }
+
+        destory_hdmi_audio(&out->hdmi_audio);
     }
     pthread_mutex_unlock(&adev->lock_outputs);
     free(stream);

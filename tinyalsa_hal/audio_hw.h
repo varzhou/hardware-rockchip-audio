@@ -73,6 +73,7 @@
 #include <hardware_legacy/uevent.h>
 
 #include "voice_preprocess.h"
+#include "audio_hw_hdmi.h"
 
 #define AUDIO_HAL_VERSION "ALSA Audio Version: V1.1.0"
 
@@ -370,6 +371,8 @@ struct stream_out {
     // for hdmi bitstream
     char* channel_buffer;
     char* bitstream_buffer;
+
+    struct hdmi_audio_infors hdmi_audio;
 };
 
 struct stream_in {
