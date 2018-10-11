@@ -1098,8 +1098,15 @@ frame_count :
 static uint32_t out_get_sample_rate(const struct audio_stream *stream)
 {
     struct stream_out *out = (struct stream_out *)stream;
+    char value[PROPERTY_VALUE_MAX];
+    property_get("vendor.vts_test", value, NULL);
 
-    return property_get_bool("vts.native_server.on",false) ? out->aud_config.sample_rate : out->config.rate;
+    if (strcmp(value, "true") == 0){
+        return out->aud_config.sample_rate;
+    } else {
+        return out->config.rate;
+    }
+
 }
 
 /**
@@ -1140,7 +1147,15 @@ static size_t out_get_buffer_size(const struct audio_stream *stream)
 static audio_channel_mask_t out_get_channels(const struct audio_stream *stream)
 {
     struct stream_out *out = (struct stream_out *)stream;
-    return property_get_bool("vts.native_server.on",false) ? out->aud_config.channel_mask : out->channel_mask;
+    char value[PROPERTY_VALUE_MAX];
+    property_get("vendor.vts_test", value, NULL);
+
+    if (strcmp(value, "true") == 0){
+        return out->aud_config.channel_mask;
+    } else {
+        return out->channel_mask;
+    }
+
 }
 
 /**
@@ -1153,8 +1168,15 @@ static audio_channel_mask_t out_get_channels(const struct audio_stream *stream)
 static audio_format_t out_get_format(const struct audio_stream *stream)
 {
     struct stream_out *out = (struct stream_out *)stream;
+    char value[PROPERTY_VALUE_MAX];
+    property_get("vendor.vts_test", value, NULL);
 
-    return property_get_bool("vts.native_server.on",false) ? out->aud_config.format : AUDIO_FORMAT_PCM_16_BIT;
+    if (strcmp(value, "true") == 0){
+        return out->aud_config.format;
+    } else {
+        return AUDIO_FORMAT_PCM_16_BIT;
+    }
+
 }
 
 /**
