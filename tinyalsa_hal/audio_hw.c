@@ -917,10 +917,6 @@ frame_count :
                        buf.raw,
                        buf.frame_count * frame_size);
                 frames_rd = buf.frame_count;
-                //ALOGV("====frames_wr:%d,buf.frame_count:%d,frame_size:%d====",frames_wr,buf.frame_count,frame_size);
-#ifdef ALSA_IN_DEBUG
-                fwrite(buffer,frames_wr * frame_size,1,in_debug);
-#endif
             }
             release_buffer(&in->buf_provider, &buf);
         }
@@ -2173,14 +2169,17 @@ static ssize_t in_read(struct audio_stream_in *stream, void* buffer,
         int curFrameSize = bytes/(channel_count*sizeof(int16_t));
         long ch;
         ALOGV("channel_count:%d",channel_count);
-        if(curFrameSize != 2*in->mSpeexFrameSize)
-            ALOGD("the current request have some error mSpeexFrameSize %d bytes %d ",in->mSpeexFrameSize,bytes);
+        if(curFrameSize != in->mSpeexFrameSize)
+            ALOGD("the current request have some error mSpeexFrameSize %d bytes %d ",in->mSpeexFrameSize, bytes);
 
         while(curFrameSize >= startPos+in->mSpeexFrameSize) {
-
-            for(index = startPos; index< startPos +in->mSpeexFrameSize ; index++ )
-                in->mSpeexPcmIn[index-startPos] = data[index*channel_count]/2 + data[index*channel_count+1]/2;
-
+            if( 2 == channel_count) {
+                for(index = startPos; index< startPos +in->mSpeexFrameSize ; index++ )
+                    in->mSpeexPcmIn[index-startPos] = data[index*channel_count]/2 + data[index*channel_count+1]/2;
+            } else {
+                for(index = startPos; index< startPos +in->mSpeexFrameSize ; index++ )
+                    in->mSpeexPcmIn[index-startPos] = data[index*channel_count];
+            }
             speex_preprocess_run(in->mSpeexState,in->mSpeexPcmIn);
 #ifndef TARGET_RK2928
             for(ch = 0 ; ch < channel_count; ch++)
@@ -2202,6 +2201,9 @@ static ssize_t in_read(struct audio_stream_in *stream, void* buffer,
     }
 #endif
 
+#ifdef ALSA_IN_DEBUG
+        fwrite(buffer, bytes, 1, in_debug);
+#endif
 exit:
     if (ret < 0)
         usleep(bytes * 1000000 / audio_stream_in_frame_size(stream) /
@@ -2772,6 +2774,13 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
 #endif
     /* Respond with a request for mono if a different format is given. */
     //ALOGV("%s:config->channel_mask %d",__FUNCTION__,config->channel_mask);
+    if (/*config->channel_mask != AUDIO_CHANNEL_IN_MONO &&
+            config->channel_mask != AUDIO_CHANNEL_IN_FRONT_BACK*/
+        config->channel_mask != AUDIO_CHANNEL_IN_STEREO) {
+        config->channel_mask = AUDIO_CHANNEL_IN_STEREO;
+        ALOGE("%s:channel is not support",__FUNCTION__);
+        return -EINVAL;
+    }
 
     in = (struct stream_in *)calloc(1, sizeof(struct stream_in));
     if (!in)
@@ -2869,12 +2878,9 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
     int noiseSuppress = -24;
     int channel_count = audio_channel_count_from_out_mask(config->channel_mask);
 
-    size = pcm_config->period_size*in->requested_rate/44100;
-    size = ((size + 15) / 16) * 16;
-    size =  size * channel_count * sizeof(int16_t);
-
-    in->mSpeexFrameSize =size/((channel_count*sizeof(int16_t))*2);
-    ALOGD("in->mSpeexFrameSize:%d",in->mSpeexFrameSize);
+    size = in_get_buffer_size(in);
+    in->mSpeexFrameSize = size/(channel_count * sizeof(int16_t));
+    ALOGD("in->mSpeexFrameSize:%d in->requested_rate:%d",in->mSpeexFrameSize, in->requested_rate);
     in->mSpeexPcmIn = malloc(sizeof(int16_t)*in->mSpeexFrameSize);
     if(!in->mSpeexPcmIn) {
         ALOGE("speexPcmIn malloc failed");
