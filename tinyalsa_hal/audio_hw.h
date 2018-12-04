@@ -77,8 +77,6 @@
 
 #define AUDIO_HAL_VERSION "ALSA Audio Version: V1.1.0"
 
-int PCM_BT_MIC = 0; //Bluetooth remote control
-
 #define PCM_DEVICE 0
 #define PCM_DEVICE_SCO 1
 #define PCM_DEVICE_VOICE 2
@@ -215,15 +213,6 @@ struct pcm_config pcm_config_in_bt = {
     .flag = HW_PARAMS_FLAG_LPCM,
 };
 #endif
-struct pcm_config pcm_config_in_remote_control = {
-    .channels = 1,
-    .rate = 16000,
-    .period_size = 120,
-    .period_count = 4,
-    .format = PCM_FORMAT_S16_LE,
-    .flag = HW_PARAMS_FLAG_LPCM,
-};
-
 struct pcm_config pcm_config_deep = {
     .channels = 2,
     .rate = 44100,
@@ -290,30 +279,13 @@ struct audio_device {
     audio_devices_t out_device; /* "or" of stream_out.device for all active output streams */
     audio_devices_t in_device;
     bool mic_mute;
-    bool hdmiin_state;
     struct audio_route *ar;
     audio_source_t input_source;
-    int cur_route_id;     /* current route ID: combination of input source
-                           * and output device IDs */
-    struct pcm *pcm_voice_out;
-    struct pcm *pcm_sco_out;
-    struct pcm *pcm_hfp_out;
-    struct pcm *pcm_voice_in;
-    struct pcm *pcm_sco_in;
-    struct pcm *pcm_hfp_in;
-    struct pcm *pcm_hdmiin_in;
-    struct pcm *pcm_hdmiin_out;
-    int hdmi_drv_fd;    /* either an fd >= 0 or -1 */
     audio_channel_mask_t in_channel_mask;
-    unsigned int sco_on_count;
-    unsigned int hfp_on_count;
 
     struct stream_out *outputs[OUTPUT_TOTAL];
     pthread_mutex_t lock_outputs; /* see note below on mutex acquisition order */
-    int pre_output_device_id;
-    int pre_input_source_id;
     unsigned int mode;
-    int slice_mode;               /*get set_data_slice mode*/
 #ifdef AUDIO_3A
     rk_process_api* voice_api;
 #endif
@@ -358,10 +330,6 @@ struct stream_out {
     bool output_direct;
 
     int output_direct_mode;
-
-    int slice_time_up;
-	int slice_time_down;
-	int out_data_size;
     struct audio_device *dev;
     struct resampler_itfe *resampler;
     // for hdmi bitstream
@@ -397,8 +365,6 @@ struct stream_in {
     struct audio_device *dev;
     audio_channel_mask_t supported_channel_masks[MAX_SUPPORTED_CHANNEL_MASKS + 1];
     uint32_t supported_sample_rates[MAX_SUPPORTED_SAMPLE_RATES + 1];
-    bool forVoiceRecognition;
-    bool isConnectRemoteControl;
 #ifdef SPEEX_DENOISE_ENABLE
     SpeexPreprocessState* mSpeexState;
     int mSpeexFrameSize;
@@ -582,11 +548,7 @@ const struct route_config * const route_configs[IN_SOURCE_TAB_SIZE]
     }
 };
 
-
-struct mixer* pre_mixer;
-pthread_t hdmi_uevent_t = 0;
 int prop_pcm;//for debug
-
 static void do_out_standby(struct stream_out *out);
 #endif
 

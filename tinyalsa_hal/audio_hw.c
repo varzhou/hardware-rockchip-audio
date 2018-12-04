@@ -168,152 +168,6 @@ static void force_non_hdmi_out_standby(struct audio_device *adev)
 }
 
 
-/**
- * @brief start_bt_sco
- * must be called with the hw device mutex locked, OK to hold other mutexes
- *
- * @param adev
- */
-static void start_bt_sco(struct audio_device *adev)
-{
-#ifdef VOICE_SUPPORT
-    if (adev->sco_on_count++ > 0)
-        return;
-    int card = adev->out_card[SND_OUT_SOUND_CARD_SPEAKER];
-    if(card == SND_OUT_SOUND_CARD_UNKNOWN){
-        return;
-    }
-    adev->pcm_voice_out = pcm_open(card, PCM_DEVICE_VOICE, PCM_OUT | PCM_MONOTONIC,
-                                   &pcm_config_sco);
-    if (adev->pcm_voice_out && !pcm_is_ready(adev->pcm_voice_out)) {
-        ALOGE("pcm_open(VOICE_OUT) failed: %s", pcm_get_error(adev->pcm_voice_out));
-        goto err_voice_out;
-    }
-    adev->pcm_sco_out = pcm_open(card, PCM_DEVICE_SCO, PCM_OUT | PCM_MONOTONIC,
-                                 &pcm_config_sco);
-    if (adev->pcm_sco_out && !pcm_is_ready(adev->pcm_sco_out)) {
-        ALOGE("pcm_open(SCO_OUT) failed: %s", pcm_get_error(adev->pcm_sco_out));
-        goto err_sco_out;
-    }
-    adev->pcm_voice_in = pcm_open(card, PCM_DEVICE_VOICE, PCM_IN,
-                                  &pcm_config_sco);
-    if (adev->pcm_voice_in && !pcm_is_ready(adev->pcm_voice_in)) {
-        ALOGE("pcm_open(VOICE_IN) failed: %s", pcm_get_error(adev->pcm_voice_in));
-        goto err_voice_in;
-    }
-    adev->pcm_sco_in = pcm_open(card, PCM_DEVICE_SCO, PCM_IN,
-                                &pcm_config_sco);
-    if (adev->pcm_sco_in && !pcm_is_ready(adev->pcm_sco_in)) {
-        ALOGE("pcm_open(SCO_IN) failed: %s", pcm_get_error(adev->pcm_sco_in));
-        goto err_sco_in;
-    }
-
-    pcm_start(adev->pcm_voice_out);
-    pcm_start(adev->pcm_sco_out);
-    pcm_start(adev->pcm_voice_in);
-    pcm_start(adev->pcm_sco_in);
-#endif
-    return;
-
-err_sco_in:
-    pcm_close(adev->pcm_sco_in);
-err_voice_in:
-    pcm_close(adev->pcm_voice_in);
-err_sco_out:
-    pcm_close(adev->pcm_sco_out);
-err_voice_out:
-    pcm_close(adev->pcm_voice_out);
-}
-
-/**
- * @brief stop_bt_sco
- * must be called with the hw device mutex locked, OK to hold other mutexes
- *
- * @param adev
- */
-static void stop_bt_sco(struct audio_device *adev)
-{
-#ifdef VOICE_SUPPORT
-    if (adev->sco_on_count == 0 || --adev->sco_on_count > 0)
-        return;
-
-    pcm_stop(adev->pcm_voice_out);
-    pcm_stop(adev->pcm_sco_out);
-    pcm_stop(adev->pcm_voice_in);
-    pcm_stop(adev->pcm_sco_in);
-
-    pcm_close(adev->pcm_voice_out);
-    pcm_close(adev->pcm_sco_out);
-    pcm_close(adev->pcm_voice_in);
-    pcm_close(adev->pcm_sco_in);
-#endif
-    return;
-}
-
-/**
- * @brief start_bt_hfp
- * must be called with the hw device mutex locked, OK to hold other mutexes
- *
- * @param adev
- */
-static void start_bt_hfp(struct audio_device *adev)
-{
-    if (adev->hfp_on_count++ > 0)
-        return;
-
-    int card = adev->out_card[SND_OUT_SOUND_CARD_SPEAKER];
-    if(card == SND_OUT_SOUND_CARD_UNKNOWN)
-        return;
-
-    adev->pcm_hfp_out = pcm_open(card, PCM_DEVICE_HFP, PCM_OUT | PCM_MONOTONIC,
-                                 &pcm_config_hfp);
-    if (adev->pcm_hfp_out && !pcm_is_ready(adev->pcm_hfp_out)) {
-        ALOGE("pcm_open(HFP_OUT) failed: %s", pcm_get_error(adev->pcm_hfp_out));
-        adev->hfp_on_count--;
-        goto err_hfp_out;
-    }
-    adev->pcm_hfp_in = pcm_open(card, PCM_DEVICE_HFP, PCM_IN,
-                                &pcm_config_hfp);
-    if (adev->pcm_hfp_in && !pcm_is_ready(adev->pcm_hfp_in)) {
-        ALOGE("pcm_open(HFP_IN) failed: %s", pcm_get_error(adev->pcm_hfp_in));
-        adev->hfp_on_count--;
-        goto err_hfp_in;
-    }
-
-    pcm_start(adev->pcm_hfp_out);
-    pcm_start(adev->pcm_hfp_in);
-
-    return;
-
-err_hfp_in:
-    pcm_close(adev->pcm_hfp_in);
-err_hfp_out:
-    pcm_close(adev->pcm_hfp_out);
-}
-
-/**
- * @brief stop_bt_hfp
- * must be called with the hw device mutex locked, OK to hold other mutexes
- *
- * @param adev
- */
-static void stop_bt_hfp(struct audio_device *adev)
-{
-    if (adev->hfp_on_count == 0 || --adev->hfp_on_count > 0)
-        return;
-
-    if (adev->pcm_hfp_out != NULL)
-        pcm_stop(adev->pcm_hfp_out);
-
-    if (adev->pcm_hfp_in != NULL)
-        pcm_stop(adev->pcm_hfp_in);
-
-    if (adev->pcm_hfp_out != NULL)
-        pcm_close(adev->pcm_hfp_out);
-
-    if (adev->pcm_hfp_in != NULL)
-        pcm_close(adev->pcm_hfp_in);
-}
 
 /**
  * @brief getOutputRouteFromDevice
@@ -639,40 +493,6 @@ FAIL:
     device->in_card[SND_IN_SOUND_CARD_BT] = 3;
 }
 
-static inline bool read_bt_mic_info()
-{
-    int card_no = 0;
-    bool ret=false;
-    char buf[25] = "";
-    char snd_card_node[100]={0};
-    FILE *fd = NULL;
-    do{
-        sprintf(snd_card_node, "/proc/asound/card%d/id", card_no);
-        if (access(snd_card_node,F_OK) ==-1) break;
-
-        fd = fopen(snd_card_node,"r");
-        memset(buf, 0 ,sizeof(buf));
-
-        if (NULL == fd) {
-            break;
-        } else {
-            fread(buf,1,sizeof(buf),fd);
-        }
-
-        if (strstr(buf, "PT71600Audio")) {
-            PCM_BT_MIC = card_no;
-            ret = true;
-            break;
-        }
-
-        card_no++;
-    }while(1);
-
-    fclose(fd);
-    return ret;
-}
-
-
 /**
  * @brief mixer_mode_set
  * for rk3399 audio output mixer mode set
@@ -841,32 +661,6 @@ static int start_output_stream(struct stream_out *out)
     }
 
     adev->out_device |= out->device;
-
-    if (out->device & AUDIO_DEVICE_OUT_ALL_SCO) {
-        start_bt_sco(adev);
-#ifdef BT_AP_SCO // HARD CODE FIXME
-        card = adev->out_card[SND_OUT_SOUND_CARD_BT];
-        if(card != SND_OUT_SOUND_CARD_UNKNOWN){
-            out->pcm[SND_OUT_SOUND_CARD_BT] = pcm_open(card, 0,
-                                        PCM_OUT | PCM_MONOTONIC, &pcm_config_ap_sco);
-            ret = create_resampler(48000,
-                                   8000,
-                                   2,
-                                   RESAMPLER_QUALITY_DEFAULT,
-                                   NULL,
-                                   &out->resampler);
-            if (ret != 0) {
-                ret = -EINVAL;
-            }
-        } else {
-            ALOGD("%s: %d: the number of bt = %d",__FUNCTION__,__LINE__,card);
-        }
-#endif
-    }
-    if(adev->hdmiin_state){
-           ALOGD("%s HDMIin state open hdmiin route",__FUNCTION__);
-           route_pcm_open(HDMI_IN_NORMAL_ROUTE);
-    }
     return 0;
 }
 
@@ -952,45 +746,6 @@ static void release_buffer(struct resampler_buffer_provider *buffer_provider,
 }
 
 /**
-*this function for Bluetooth remote control enabled,
-*write buff to "/dev/hidraw" enable or disadle.
-**/
-void set_remote_control_mic_enabled(bool flag)
-{
-    const char *device = "/dev/hidraw";
-    char device_to_be_open[128];
-    char buf[256];
-    static int openfd,res;
-
-    memset(device_to_be_open,0x0,sizeof(device_to_be_open));
-    sprintf(device_to_be_open,"%s%d",device,0);
-    memset(buf,0x0,sizeof(buf));
-
-    openfd =open(device_to_be_open, O_RDWR);
-    if (openfd < 0) {
-        ALOGD("Unable to open device /dev/hidraw/");
-        return;
-    }
-    if (flag) {
-        buf[0]=0x04;   //Report ID 4
-        buf[1]=0x03;   //0x03 is used to enable audio
-    } else {
-        buf[0]=0x04;   //Report ID 4
-        buf[1]=0x00;   //0x00 is used to disadle audio
-    }
-
-    res = write(openfd,buf,2);
-
-    if (res < 0){
-        ALOGD("wirte to enadle audio fail\n");
-    } else {
-        ALOGD("wirte to enadle audio ok\n");
-    }
-
-    close(openfd);
-}
-
-/**
  * @brief start_input_stream
  * must be called with input stream and hw device mutexes locked
  *
@@ -1061,9 +816,6 @@ static int start_input_stream(struct stream_in *in)
         }
     }
 #else
-    if (in->forVoiceRecognition) {
-        set_remote_control_mic_enabled(true);
-    }
     if (in->device & AUDIO_DEVICE_IN_BUILTIN_MIC) {
         card = adev->in_card[SND_IN_SOUND_CARD_MIC];
         in->pcm = pcm_open(card, PCM_DEVICE, PCM_IN, in->config);
@@ -1075,10 +827,6 @@ static int start_input_stream(struct stream_in *in)
     if (in->pcm && !pcm_is_ready(in->pcm)) {
         ALOGE("pcm_open() failed: %s", pcm_get_error(in->pcm));
         pcm_close(in->pcm);
-        if (in->forVoiceRecognition) {
-            in->forVoiceRecognition = false;
-            set_remote_control_mic_enabled(false);
-        }
         return -ENOMEM;
     }
 
@@ -1091,9 +839,6 @@ static int start_input_stream(struct stream_in *in)
     adev->in_device = in->device;
     adev->in_channel_mask = in->channel_mask;
 
-
-    if (in->device & AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET)
-        start_bt_sco(adev);
 
     /* initialize volume ramp */
     in->ramp_frames = (CAPTURE_START_RAMP_MS * in->requested_rate) / 1000;
@@ -1351,9 +1096,6 @@ static void do_out_standby(struct stream_out *out)
         mixer_mode_set(out);
 #endif
 #endif
-        if (out->device & AUDIO_DEVICE_OUT_ALL_SCO)
-            stop_bt_sco(adev);
-
         /* re-calculate the set of active devices from other streams */
         adev->out_device = output_devices(out);
 
@@ -1478,8 +1220,6 @@ static int out_set_parameters(struct audio_stream *stream, const char *kvpairs)
     int ret;
     int status = 0;
     unsigned int val;
-    if(adev->hdmiin_state)
-	    return 0;
 
     ALOGD("%s: kvpairs = %s", __func__, kvpairs);
 
@@ -1750,9 +1490,9 @@ static void dump_out_data(const void* buffer,size_t bytes, int *size)
     static FILE* fd;
     static int offset = 0;
     if(fd == NULL) {
-        fd=fopen("/data/debug.pcm","wb+");
+        fd=fopen("/data/misc/audioserver/debug.pcm","wb+");
         if(fd == NULL) {
-            ALOGD("DEBUG open /data/debug.pcm error =%d ,errno = %d",fd,errno);
+            ALOGD("DEBUG open /data/debug.pcm ,errno = %s",strerror(errno));
             offset = 0;
         }
     }
@@ -1766,6 +1506,7 @@ static void dump_out_data(const void* buffer,size_t bytes, int *size)
             fclose(fd);
             offset = 0;
             system("setprop media.audio.record 0");
+            property_set("vendor.audio.record", "0");
             ALOGD("TEST playback pcmfile end");
         }
     }
@@ -1811,7 +1552,6 @@ static ssize_t out_write(struct audio_stream_out *stream, const void* buffer,
      * executing out_set_parameters() while holding the hw device
      * mutex
      */
-    out->out_data_size = bytes;
     char value[PROPERTY_VALUE_MAX];
 
     pthread_mutex_lock(&out->lock);
@@ -2139,10 +1879,6 @@ static void do_in_standby(struct stream_in *in)
     if (!in->standby) {
         pcm_close(in->pcm);
         in->pcm = NULL;
-
-        if (in->device & AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET)
-            stop_bt_sco(adev);
-
         in->dev->input_source = AUDIO_SOURCE_DEFAULT;
         in->dev->in_device = AUDIO_DEVICE_NONE;
         in->dev->in_channel_mask = 0;
@@ -2215,10 +1951,6 @@ static int in_set_parameters(struct audio_stream *stream, const char *kvpairs)
     bool apply_now = false;
 
     ALOGV("%s: kvpairs = %s", __func__, kvpairs);
-
-    if(adev->hdmiin_state)
-	    return 0;
-
     parms = str_parms_create_str(kvpairs);
 
     //set channel_mask
@@ -2761,8 +2493,6 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     out->stream.get_presentation_position = out_get_presentation_position;
 
     out->dev = adev;
-    out->dev->pre_output_device_id = OUT_DEVICE_SPEAKER;
-    out->dev->pre_input_source_id = IN_SOURCE_MIC;
 
     out->standby = true;
     out->nframes = 0;
@@ -2829,71 +2559,6 @@ static void adev_close_output_stream(struct audio_hw_device *dev,
     free(stream);
 }
 
-static int hfp_enable(struct audio_device *adev, char *value)
-{
-    int ret = 0;
-
-    if ((strcmp(value, "true") == 0) || (strcmp(value, "on") == 0)) {
-        ALOGD("Enable HFP client feature!");
-        route_pcm_open(SPEAKER_INCALL_ROUTE);
-        start_bt_hfp(adev);
-    } else if ((strcmp(value, "false") == 0)||(strcmp(value, "off") == 0)) {
-        ALOGD("Disable HFP client feature!");
-        stop_bt_hfp(adev);
-        route_pcm_open(INCALL_OFF_ROUTE);
-    } else {
-        ALOGE("Unknown HFP client state %s!!!", value);
-        ret = -EINVAL;
-    }
-
-    return ret;
-}
-
-
-static int HDMIin_enable(struct audio_device *adev, char *value, char *buf)
-{
-    int ret = 0;
-
-    if (strcmp(value, "true") == 0) {
-        int card = adev->in_card[SND_IN_SOUND_CARD_MIC];
-        if(card == SND_IN_SOUND_CARD_UNKNOWN){
-            ALOGE("%s,card = %d",__FUNCTION__,card);
-            return -EINVAL;
-        }
-        adev->pcm_hdmiin_out = pcm_open(card, PCM_DEVICE_HDMIIN,
-                                   PCM_OUT | PCM_MONOTONIC, &pcm_config);
-
-        if (adev->pcm_hdmiin_out && !pcm_is_ready(adev->pcm_hdmiin_out)) {
-            ALOGE("adev->pcm_hdmiin_out failed: %s",pcm_get_error(adev->pcm_hdmiin_out));
-            pcm_close(adev->pcm_hdmiin_out);
-            ret = -ENOMEM;
-        }
-
-        adev->hdmiin_state = true;
-        route_pcm_open(HDMI_IN_NORMAL_ROUTE);
-        pcm_write(adev->pcm_hdmiin_out, buf, 10);
-        ALOGD("Enable HDMIin");
-    } else if (strcmp(value, "false") == 0) {
-        route_pcm_open(HDMI_IN_OFF_ROUTE);
-
-        if (adev->pcm_hdmiin_in) {
-            pcm_close(adev->pcm_hdmiin_in);
-        }
-
-        if (adev->pcm_hdmiin_out) {
-            pcm_close(adev->pcm_hdmiin_out);
-        }
-
-        adev->hdmiin_state = false;
-        ALOGD("Disable HDMIin");
-    } else {
-        ALOGE("Unknown HDMIin state %s!!!", value);
-        ret = -EINVAL;
-    }
-
-    return ret;
-}
-
 /**
  * @brief adev_set_parameters
  *
@@ -2916,19 +2581,10 @@ static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
     pthread_mutex_lock(&adev->lock);
 
     if (0 == ret) {
-      /* HFP client enable/disable */
-        val = str_parms_get_str(parms, "hfp_enable", value, sizeof(value));
-        if (0 <= val) {
-            ret = hfp_enable(adev, &value[0]);
-        }
-      /* HDMIin enable/disable */
-        val = str_parms_get_str(parms, "HDMIin_enable", value, sizeof(value));
-        if (0 <= val) {
-            ret = HDMIin_enable(adev, &value[0], &buf[0]);
-        }
     }
 
     pthread_mutex_unlock(&adev->lock);
+    str_parms_destroy(parms);
     return ret;
 }
 
@@ -3161,13 +2817,7 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
         pcm_config = &pcm_config_in_bt;
     }
 #endif
-    in->forVoiceRecognition = false;
-    in->isConnectRemoteControl = read_bt_mic_info();
-    if ((in->device & AUDIO_DEVICE_IN_BUILTIN_MIC) && in->isConnectRemoteControl) {
-        ALOGD("found Android TV remote mic Card connect!");
-        pcm_config = &pcm_config_in_remote_control;
-        in->forVoiceRecognition = true;
-    }
+
     in->config = pcm_config;
 
     in->buffer = malloc(pcm_config->period_size * pcm_config->channels
@@ -3273,11 +2923,7 @@ static void adev_close_input_stream(struct audio_hw_device *dev,
         release_resampler(in->resampler);
         in->resampler = NULL;
     }
-    if (in->forVoiceRecognition) {
-        in->forVoiceRecognition = false;
-        set_remote_control_mic_enabled(false);
-    }
-    PCM_BT_MIC =0;
+
 #ifdef ALSA_IN_DEBUG
     fclose(in_debug);
 #endif
@@ -3329,9 +2975,6 @@ static int adev_close(hw_device_t *device)
 
     route_uninit();
 
-    if (adev->hdmi_drv_fd >= 0)
-        close(adev->hdmi_drv_fd);
-
     free(device);
     return 0;
 }
@@ -3341,11 +2984,6 @@ static void adev_open_init(struct audio_device *adev)
     ALOGD("%s",__func__);
     int i = 0;
     adev->mic_mute = false;
-    adev->hdmiin_state = false;
-    adev->sco_on_count = 0;
-    adev->hfp_on_count = 0;
-    adev->hdmi_drv_fd = -1;
-    adev->slice_mode = 0;
 
 #ifdef AUDIO_3A
     adev->voice_api = NULL;
