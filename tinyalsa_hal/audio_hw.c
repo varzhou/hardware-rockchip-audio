@@ -73,6 +73,17 @@ enum SOUND_CARD_OWNER{
     SOUND_CARD_SPDIF = 1,
 };
 
+/*
+ * mute audio datas when screen off or standby
+ * The MediaPlayer no stop/pause when screen off, they may be just play in background,
+ * so they still send audio datas to audio hal.
+ * HDMI may disconnet and enter stanby status, this means no voice output on HDMI
+ * but speaker/av and spdif still work, and voice may output on them.
+ * Some customer need to mute the audio datas in this condition.
+ * If need mute datas when screen off, define this marco.
+ */
+//#define MUTE_WHEN_SCREEN_OFF
+
 //#define ALSA_DEBUG
 #ifdef ALSA_IN_DEBUG
 FILE *in_debug;
@@ -1528,6 +1539,27 @@ static void reset_bitstream_buf(struct stream_out *out)
     }
 }
 
+static void out_mute_data(struct stream_out *out,void* buffer,size_t bytes)
+{
+    struct audio_device *adev = out->dev;
+    char* buf = buffer;
+    size_t size = bytes;
+    bool mute_screen_off = false;
+
+    if ((out->output_direct) && (out->config.format == PCM_FORMAT_S24_LE)) {
+        buf = out->bitstream_buffer;
+        size = 2*bytes;
+    }
+
+#ifdef MUTE_WHEN_SCREEN_OFF
+    mute_screen_off = adev->screenOff;
+#endif
+
+    if (out->muted || mute_screen_off){
+        memset((void *)buf, 0, size);
+    }
+}
+
 /**
  * @brief out_write
  *
@@ -1578,7 +1610,7 @@ false_alarm:
     }
 
 #ifdef BOX_HAL
-    if (out->config.format == PCM_FORMAT_S24_LE) {
+    if ((out->output_direct) && (out->config.format == PCM_FORMAT_S24_LE)) {
         if (out->bitstream_buffer == NULL) {
             out->bitstream_buffer = (char *)malloc(newbytes);
             ALOGD("new bitstream buffer!");
@@ -1588,8 +1620,7 @@ false_alarm:
     }
 #endif
 
-    if (out->muted)
-        memset((void *)buffer, 0, bytes);
+    out_mute_data(out,buffer,bytes);
 
 #ifdef AUDIO_3A
     if (adev->voice_api != NULL) {
@@ -2573,14 +2604,20 @@ static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
     struct str_parms *parms = NULL;
     char value[32] = "";
     int ret = 0;
-    int val = 0;
-    static char buf[1024] = {0};
 
     ALOGD("%s: kvpairs = %s", __func__, kvpairs);
     parms = str_parms_create_str(kvpairs);
     pthread_mutex_lock(&adev->lock);
 
-    if (0 == ret) {
+    // screen state off/on
+    ret = str_parms_get_str(parms, AUDIO_PARAMETER_KEY_SCREEN_STATE, // screen_state
+                            value, sizeof(value));
+    if (ret >= 0) {
+        if(strcmp(value,"on") == 0){
+            adev->screenOff = false;
+        } else if(strcmp(value,"off") == 0){
+            adev->screenOff = true;
+        }
     }
 
     pthread_mutex_unlock(&adev->lock);
@@ -2984,6 +3021,7 @@ static void adev_open_init(struct audio_device *adev)
     ALOGD("%s",__func__);
     int i = 0;
     adev->mic_mute = false;
+    adev->screenOff = false;
 
 #ifdef AUDIO_3A
     adev->voice_api = NULL;
