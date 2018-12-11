@@ -162,6 +162,8 @@ int is_playback_route(unsigned route)
     case USB_CAPTURE_ROUTE:
     case HDMI_IN_NORMAL_ROUTE:
     case HDMI_IN_OFF_ROUTE:
+    case HDMI_IN_CAPTURE_ROUTE:
+    case HDMI_IN_CAPTURE_OFF_ROUTE:
         return 0;
     case SPEAKER_NORMAL_ROUTE:
     case SPEAKER_INCALL_ROUTE:
@@ -354,6 +356,10 @@ const struct config_route *get_route_config(unsigned route)
         return &(route_table->hdmiin_normal);
     case HDMI_IN_OFF_ROUTE:
         return &(route_table->hdmiin_off);
+    case HDMI_IN_CAPTURE_ROUTE:
+        return &(route_table->hdmiin_captrue);
+    case HDMI_IN_CAPTURE_OFF_ROUTE:
+        return &(route_table->hdmiin_captrue_off);
     default:
         ALOGE("get_route_config() Error route %d", route);
         return NULL;
@@ -449,7 +455,9 @@ int route_set_controls(unsigned route)
     if (route > SPDIF_NORMAL_ROUTE &&
         route != USB_CAPTURE_ROUTE &&
         route != HDMI_IN_NORMAL_ROUTE &&
-        route != HDMI_IN_OFF_ROUTE) {
+        route != HDMI_IN_OFF_ROUTE &&
+        route != HDMI_IN_CAPTURE_ROUTE &&
+        route != HDMI_IN_CAPTURE_OFF_ROUTE) {
         ALOGV("route %d error for codec or hdmi!", route);
         return -EINVAL;
     }
@@ -508,7 +516,9 @@ void route_pcm_open(uint32_t route)
         route != USB_CAPTURE_ROUTE &&
         route != HDMI_IN_NORMAL_ROUTE &&
         route != HDMI_IN_OFF_ROUTE &&
-        route != PLAYBACK_OFF_ROUTE) {
+        route != PLAYBACK_OFF_ROUTE &&
+        route != HDMI_IN_CAPTURE_ROUTE &&
+        route != HDMI_IN_CAPTURE_OFF_ROUTE) {
         ALOGV("route %d error for codec or hdmi!", route);
         goto __exit;
     }
@@ -580,7 +590,8 @@ int route_pcm_close(unsigned route)
     if (route != PLAYBACK_OFF_ROUTE &&
         route != CAPTURE_OFF_ROUTE &&
         route != INCALL_OFF_ROUTE &&
-        route != VOIP_OFF_ROUTE) {
+        route != VOIP_OFF_ROUTE &&
+        route != HDMI_IN_CAPTURE_OFF_ROUTE) {
         ALOGE("route_pcm_close() is not a off route");
         return 0;
     }

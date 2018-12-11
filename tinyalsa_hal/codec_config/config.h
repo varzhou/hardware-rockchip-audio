@@ -104,6 +104,8 @@ struct config_route_table
 
     const struct config_route hdmiin_normal;
     const struct config_route hdmiin_off;
+    const struct config_route hdmiin_captrue;
+    const struct config_route hdmiin_captrue_off;
 };
 
 #define on 1

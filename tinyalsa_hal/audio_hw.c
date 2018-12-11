@@ -373,7 +373,7 @@ uint32_t getInputRouteFromDevice(uint32_t device)
     /*if (mMicMute) {
         return CAPTURE_OFF_ROUTE;
     }*/
-    ALOGE("%s:device:%x",__FUNCTION__,device);
+    ALOGD("%s:device:%x",__FUNCTION__,device);
     switch (device) {
     case AUDIO_DEVICE_IN_BUILTIN_MIC:
         return MAIN_MIC_CAPTURE_ROUTE;
@@ -383,6 +383,8 @@ uint32_t getInputRouteFromDevice(uint32_t device)
         return BLUETOOTH_SOC_MIC_CAPTURE_ROUTE;
     case AUDIO_DEVICE_IN_ANLG_DOCK_HEADSET:
         return USB_CAPTURE_ROUTE;
+    case AUDIO_DEVICE_IN_HDMI:
+        return HDMI_IN_CAPTURE_ROUTE;
     default:
         return CAPTURE_OFF_ROUTE;
     }
@@ -625,7 +627,7 @@ static int start_output_stream(struct stream_out *out)
     bool connect_hdmi = true;
     int ret = 0;
 
-    ALOGD("%s",__FUNCTION__);
+    ALOGD("%s device: %x",__FUNCTION__, out->device);
     if (out == adev->outputs[OUTPUT_HDMI_MULTI]) {
         force_non_hdmi_out_standby(adev);
     } else if (adev->outputs[OUTPUT_HDMI_MULTI] && !adev->outputs[OUTPUT_HDMI_MULTI]->standby) {
@@ -887,7 +889,12 @@ static int start_input_stream(struct stream_in *in)
         }
     }
 #else
-    in->pcm = pcm_open(PCM_CARD, PCM_DEVICE, PCM_IN, in->config);
+     if (in->device & AUDIO_DEVICE_IN_HDMI && PCM_CARD_HDMIIN >= 0) {
+        in->pcm = pcm_open(PCM_CARD_HDMIIN, PCM_DEVICE, PCM_IN, in->config);
+        ALOGD("open HDMIIN %d", PCM_CARD_HDMIIN);
+     }
+     else
+        in->pcm = pcm_open(PCM_CARD, PCM_DEVICE, PCM_IN, in->config);
 #endif
     if (in->pcm && !pcm_is_ready(in->pcm)) {
         ALOGE("pcm_open() failed: %s", pcm_get_error(in->pcm));
@@ -1908,6 +1915,8 @@ static void do_in_standby(struct stream_in *in)
 
         if (in->device & AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET)
             stop_bt_sco(adev);
+        else if (in->device & AUDIO_DEVICE_IN_HDMI)
+            route_pcm_close(HDMI_IN_CAPTURE_OFF_ROUTE);
 
         in->dev->input_source = AUDIO_SOURCE_DEFAULT;
         in->dev->in_device = AUDIO_DEVICE_NONE;
@@ -2168,7 +2177,6 @@ static ssize_t in_read(struct audio_stream_in *stream, void* buffer,
         int channel_count = audio_channel_count_from_out_mask(in->channel_mask);
         int curFrameSize = bytes/(channel_count*sizeof(int16_t));
         long ch;
-        ALOGV("channel_count:%d",channel_count);
         if(curFrameSize != 2*in->mSpeexFrameSize)
             ALOGD("the current request have some error mSpeexFrameSize %d bytes %d ",in->mSpeexFrameSize,bytes);
 
@@ -2555,27 +2563,11 @@ static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
       val = str_parms_get_str(parms, "HDMIin_enable", value, sizeof(value));
       if (0 <= val) {
          if (strcmp(value, "true") == 0) {
-		 adev->pcm_hdmiin_out = pcm_open(PCM_CARD, PCM_DEVICE_HDMIIN,
-				 PCM_OUT | PCM_MONOTONIC, &pcm_config);
-		 if (adev->pcm_hdmiin_out && !pcm_is_ready(adev->pcm_hdmiin_out)) {
-			 ALOGE("adev->pcm_hdmiin_out failed: %s",
-					 pcm_get_error(adev->pcm_hdmiin_out));
-			 pcm_close(adev->pcm_hdmiin_out);
-			 ret = -ENOMEM;
-		 }
 		 adev->hdmiin_state = true;
 		 route_pcm_open(HDMI_IN_NORMAL_ROUTE);
-		 pcm_write(adev->pcm_hdmiin_out, buf, 10);
 		 ALOGD("Enable HDMIin");
 	 } else if (strcmp(value, "false") == 0) {
 		 route_pcm_open(HDMI_IN_OFF_ROUTE);
-		 if (adev->pcm_hdmiin_in) {
-			 pcm_close(adev->pcm_hdmiin_in);
-		 }
-
-		 if (adev->pcm_hdmiin_out) {
-			 pcm_close(adev->pcm_hdmiin_out);
-		 }
 		 adev->hdmiin_state = false;
 		 ALOGD("Disable HDMIin");
 	 } else {
@@ -2888,6 +2880,9 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
 #endif
 
     *stream_in = &in->stream;
+
+    ALOGD("create new input stream for dev(0x%08X), rate(%d), channel(0x%08X)",
+            in->device, in->requested_rate, in->channel_mask);
     return 0;
 
 err_speex_malloc:
