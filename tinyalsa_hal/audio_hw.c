@@ -280,8 +280,9 @@ static int get_line(FILE* file, char *line, int line_size)
 
             return 0;
         } else {
-            if ((q - line) < line_size - 1)
-                *q++ = ch;
+            if ((q - line) < line_size - 1){
+                *q++ = tolower(ch);  // convert to lower
+            }
         }
     }
 }
