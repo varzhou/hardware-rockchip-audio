@@ -299,6 +299,10 @@ static bool is_speaker_out_sound_card(char* buf)
     if(strstr(buf,"rockchiprk") && strstr(buf,":")){
         return true;
     }
+    // for special  product
+    if(strstr(buf,"realtekrt5651co") && strstr(buf,":")){
+        return true;
+    }
 
     // add codes here
 
@@ -315,6 +319,10 @@ static bool is_hdmi_out_sound_card(char* buf)
      * for example: 1 [rockchiphdmi   ]: rockchip-hdmi - rockchip-hdmi
      */
     if(strstr(buf,"rockchiphdmi")&& strstr(buf,":")){
+        return true;
+    }
+    // for dp
+    if(strstr(buf,"rkhdmidpsound") && strstr(buf,":")){
         return true;
     }
 
