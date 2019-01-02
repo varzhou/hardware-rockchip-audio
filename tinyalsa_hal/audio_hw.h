@@ -286,6 +286,7 @@ struct audio_device {
     struct stream_out *outputs[OUTPUT_TOTAL];
     pthread_mutex_t lock_outputs; /* see note below on mutex acquisition order */
     unsigned int mode;
+    bool   screenOff;
 #ifdef AUDIO_3A
     rk_process_api* voice_api;
 #endif
