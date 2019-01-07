@@ -2347,6 +2347,53 @@ static int adev_get_microphones(const struct audio_hw_device *dev,
     return 0;
 }
 
+static int in_get_active_microphones(const struct audio_stream_in *stream,
+                         struct audio_microphone_characteristic_t *mic_array,
+                         size_t *mic_count)
+{
+    struct stream_in *in = (struct stream_in *)stream;
+    struct audio_device *adev = in->dev;
+    pthread_mutex_lock(&in->lock);
+    pthread_mutex_lock(&adev->lock);
+
+    size_t actual_mic_count = 0;
+    int card_no = 0;
+
+    char snd_card_node_id[100]={0};
+    char snd_card_node_cap[100]={0};
+    char snd_card_info[100]={0};
+    char snd_card_state[255]={0};
+
+    do{
+        sprintf(snd_card_node_id, "/proc/asound/card%d/id", card_no);
+        if (access(snd_card_node_id,F_OK) == -1) break;
+
+        sprintf(snd_card_node_cap, "/proc/asound/card%d/pcm0c/info", card_no);
+        if (access(snd_card_node_cap,F_OK) == -1) {
+            continue;
+        } else {
+            sprintf(snd_card_info, "/proc/asound/card%d/pcm0c/sub0/status", card_no);
+            int fd;
+            fd = open(snd_card_info, O_RDONLY);
+            if (fd < 0) {
+                ALOGE("%s,failed to open node: %s", __func__, snd_card_info);
+            } else {
+                int length = read(fd, snd_card_state, sizeof(snd_card_state) -1);
+                snd_card_state[length] = 0;
+                if (strcmp(snd_card_state, "closed") != 0) actual_mic_count++;
+            }
+            close(fd);
+        }
+    } while(++card_no);
+
+    pthread_mutex_unlock(&adev->lock);
+    pthread_mutex_unlock(&in->lock);
+
+    ALOGD("%s,get active mic actual_mic_count =%d", __func__, actual_mic_count);
+    *mic_count = actual_mic_count;
+    return 0;
+}
+
 
 /**
  * @brief adev_open_output_stream
@@ -2855,6 +2902,7 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
     in->stream.set_gain = in_set_gain;
     in->stream.read = in_read;
     in->stream.get_input_frames_lost = in_get_input_frames_lost;
+    in->stream.get_active_microphones = in_get_active_microphones;
 
     in->dev = adev;
     in->standby = true;
