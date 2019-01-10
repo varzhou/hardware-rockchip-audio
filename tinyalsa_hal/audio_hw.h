@@ -328,8 +328,19 @@ struct stream_out {
     bool muted;
     uint64_t written; /* total frames written, not cleared when entering standby */
     uint64_t nframes;
+
+    /*
+     * true: current stream take sound card in exclusive Mode, when this stream using this sound card,
+     *       other stream can't using this sound card. This happen when current stream
+     *       is multi pcm stream or bitstream. Multi channels pcm datas or bitstream datas can't be mixed.
+     * false: current stream is 2 channels pcm stream
+     */
     bool output_direct;
 
+    /*
+     * LPCM:  pcm datas(include multi channels pcm)
+     * others: bitstream
+     */
     int output_direct_mode;
     struct audio_device *dev;
     struct resampler_itfe *resampler;
@@ -338,6 +349,8 @@ struct stream_out {
     char* bitstream_buffer;
 
     struct hdmi_audio_infors hdmi_audio;
+
+    bool   snd_reopen;
 };
 
 struct stream_in {
@@ -549,7 +562,6 @@ const struct route_config * const route_configs[IN_SOURCE_TAB_SIZE]
     }
 };
 
-int prop_pcm;//for debug
 static void do_out_standby(struct stream_out *out);
 #endif
 
