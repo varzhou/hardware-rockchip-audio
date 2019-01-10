@@ -298,24 +298,31 @@ static int get_line(FILE* file, char *line, int line_size)
     }
 }
 
+/*add codes name here*/
+static char* SPEAKER_NAME [] =
+{
+   "rockchiprk",
+   "realtekrt5651co",
+   "rockchipes8316c",
+   "rockchiprk809co",
+};
+
 static bool is_speaker_out_sound_card(char* buf)
 {
+    int length = sizeof(SPEAKER_NAME)/sizeof(char*);
+
     if(buf == NULL)
         return false;
 
     /*
-     * hdmi: diffrent product may have diffrent card name,modify codes here
+     * speaker: diffrent product may have diffrent card name,modify codes here
      * for example: 0 [rockchiprk3328 ]: rockchip-rk3328 - rockchip-rk3328
      */
-    if(strstr(buf,"rockchiprk") && strstr(buf,":")){
-        return true;
-    }
-    // for special  product
-    if(strstr(buf,"realtekrt5651co") && strstr(buf,":")){
-        return true;
-    }
 
-    // add codes here
+    for(int i = 0; i < length; i ++) {
+        if(strstr(buf,SPEAKER_NAME[i]) && strstr(buf,":"))
+            return true;
+    }
 
     return false;
 }
@@ -370,9 +377,19 @@ static bool is_bt_out_sound_card(char* buf)
     return false;
 }
 
+/*add codes name here*/
+static char* MIC_NAME [] =
+{
+    "rockchiprk",
+    "realtekrt5651co",
+    "rockchipes8316c",
+    "rockchiprk809co",
+};
 
 static bool is_mic_in_sound_card(char* buf)
 {
+    int length = sizeof(MIC_NAME)/sizeof(char*);
+
     if(buf == NULL)
         return false;
 
@@ -380,12 +397,11 @@ static bool is_mic_in_sound_card(char* buf)
      * mic: diffrent product may have diffrent card name,modify codes here
      * for example: 0 [rockchiprk3328 ]: rockchip-rk3328 - rockchip-rk3328
      */
-    if(strstr(buf,"rockchiprk") && strstr(buf,":")){
-        return true;
-    }
 
-    // add codes here
-
+    for(int i = 0; i < length; i ++) {
+        if(strstr(buf,MIC_NAME[i]) && strstr(buf,":"))
+            return true;
+  }
     return false;
 }
 
