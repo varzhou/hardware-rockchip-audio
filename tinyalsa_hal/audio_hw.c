@@ -2661,7 +2661,23 @@ static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
     struct audio_device *adev = (struct audio_device *)dev;
     struct str_parms *parms = NULL;
     char value[32] = "";
+    /*
+     * ret is the result of str_parms_get_str,
+     * if no paramter which str_parms_get_str to get, it will return result < 0 always.
+     * For example: kvpairs = connect=1024 is coming
+     *              str_parms_get_str(parms, AUDIO_PARAMETER_KEY_SCREEN_STATE,value, sizeof(value))
+     *              will return result < 0,this means no screen_state in parms
+     */
     int ret = 0;
+
+    /*
+     * status is the result of one process,
+     * For example: kvpairs = screen_state=on is coming,
+     *              str_parms_get_str(parms, AUDIO_PARAMETER_KEY_SCREEN_STATE,value, sizeof(value))
+     *              will return result >= 0,this means screen is on, we can do something,
+     *              if the things we do is correct, we set status = 0, or status < 0 means fail.
+     */
+    int status = 0;
 
     ALOGD("%s: kvpairs = %s", __func__, kvpairs);
     parms = str_parms_create_str(kvpairs);
@@ -2680,7 +2696,7 @@ static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
 
     pthread_mutex_unlock(&adev->lock);
     str_parms_destroy(parms);
-    return ret;
+    return status;
 }
 
 /**
