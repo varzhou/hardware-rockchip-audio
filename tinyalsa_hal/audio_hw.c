@@ -1694,14 +1694,14 @@ false_alarm:
                 }
             }
     }
-    if (ret == 0) {
-        out->written += bytes / (out->config.channels * sizeof(short));
-        out->nframes = out->written;
-    }
 exit:
     pthread_mutex_unlock(&out->lock);
 final_exit:
-
+    {
+        // For PCM we always consume the buffer and return #bytes regardless of ret.
+        out->written += bytes / (out->config.channels * sizeof(short));
+        out->nframes = out->written;
+    }
     if (ret != 0) {
         ALOGV("AudioData write  error , keep slience! ret = %d", ret);
         usleep(bytes * 1000000 / audio_stream_out_frame_size(stream) /
