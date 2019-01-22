@@ -84,6 +84,18 @@ enum SOUND_CARD_OWNER{
  */
 //#define MUTE_WHEN_SCREEN_OFF
 
+/*
+ * if current audio stream bitstream over hdmi,
+ * and hdmi is removed and reconnected later,
+ * the driver of hdmi may config it with pcm mode automatically,
+ * which is according the implement of hdmi driver.
+ * If hdmi driver implement in this way, in order to output audio
+ * bitstream stream after hdmi reconnected,
+ * we must close sound card of hdmi and reopen/config
+ * it in bitstream mode. If need this, define this macro.
+ */
+#define AUDIO_BITSTREAM_REOPEN_HDMI
+
 //#define ALSA_DEBUG
 #ifdef ALSA_IN_DEBUG
 FILE *in_debug;
@@ -168,7 +180,6 @@ static void force_non_hdmi_out_standby(struct audio_device *adev)
 {
     enum output_type type;
     struct stream_out *out;
-
     for (type = 0; type < OUTPUT_TOTAL; ++type) {
         out = adev->outputs[type];
         if (type == OUTPUT_HDMI_MULTI|| !out)
@@ -513,6 +524,47 @@ FAIL:
     device->in_card[SND_IN_SOUND_CARD_BT] = 3;
 }
 
+static bool is_bitstream(struct stream_out *out)
+{
+    if(out == NULL) {
+        return false;
+    }
+
+    bool bitstream = false;
+    if(out->output_direct) {
+        switch(out->output_direct_mode) {
+            case HBR:
+            case NLPCM:
+                bitstream = true;
+                break;
+            case LPCM:
+            default:
+                bitstream = false;
+                break;
+        }
+    } else {
+        if(out->output_direct_mode != LPCM) {
+            ALOGD("%s: %d: error output_direct = false, but output_direct_mode != LPCM, this is error config",__FUNCTION__,__LINE__);
+        }
+    }
+
+    return bitstream;
+}
+
+static bool is_multi_pcm(struct stream_out *out)
+{
+    if(out == NULL) {
+        return false;
+    }
+
+    bool multi = false;
+    if(out->output_direct && (out->output_direct_mode == LPCM) && (out->config.channels > 2)) {
+        multi = true;
+    }
+
+    return multi;
+}
+
 /**
  * @brief mixer_mode_set
  * for rk3399 audio output mixer mode set
@@ -554,6 +606,48 @@ static int mixer_mode_set(struct stream_out *out)
     return ret;
 }
 
+
+static void open_sound_card_policy(struct stream_out *out)
+{
+    if(out == NULL) {
+        return ;
+    }
+
+    if(is_bitstream(out) || (is_multi_pcm(out))) {
+        return ;
+    }
+
+    /*
+     * In Box Product, ouput 2 channles pcm datas over hdmi,speaker and spdif simultaneous.
+     * speaker can only support 44.1k or 48k
+     */
+    bool support = ((out->config.rate == 44100) || (out->config.rate == 48000));
+    struct audio_device *adev = out->dev;
+    if (support) {
+        if(adev->out_card[SND_OUT_SOUND_CARD_SPEAKER] != SND_OUT_SOUND_CARD_UNKNOWN) {
+            out->device |= AUDIO_DEVICE_OUT_SPEAKER;
+        }
+
+        if(adev->out_card[SND_OUT_SOUND_CARD_HDMI] != SND_OUT_SOUND_CARD_UNKNOWN) {
+            out->device |= AUDIO_DEVICE_OUT_AUX_DIGITAL;
+        }
+
+        if(adev->out_card[SND_OUT_SOUND_CARD_SPDIF] != SND_OUT_SOUND_CARD_UNKNOWN){
+           out->device |= AUDIO_DEVICE_OUT_SPDIF;
+        }
+    }
+
+    // some specail config for chips
+#ifdef RK3288
+    /*3288's hdmi & codec use the same i2s,so only config the codec card*/
+    audio_devices_t devices = (AUDIO_DEVICE_OUT_AUX_DIGITAL|AUDIO_DEVICE_OUT_SPEAKER);
+    if ((out->device & devices) == devices) {
+        out->device &= ~AUDIO_DEVICE_OUT_AUX_DIGITAL;
+    }
+#endif
+    out_dump(out, 0);
+}
+
 /**
  * @brief start_output_stream
  * must be called with hw device outputs list, output stream, and hw device mutexes locked
@@ -564,44 +658,43 @@ static int mixer_mode_set(struct stream_out *out)
  */
 static int start_output_stream(struct stream_out *out)
 {
-    char value[PROPERTY_VALUE_MAX] = "";
     struct audio_device *adev = out->dev;
-    int type;
-    bool connect_hdmi = true;
     int ret = 0;
     int card = (int)SND_OUT_SOUND_CARD_UNKNOWN;
+    // set defualt value to true for compatible with mid project
+    bool disable = true;
 
-    ALOGD("%s",__FUNCTION__);
+#ifdef BOX_HAL
+    /*
+     * In Box Project, if output stream is 2 channels pcm,
+     * the 2 channels pcm can simultaneous output over speaker,hdmi and spdif.
+     * If hdmi is already opened in multi pcm mode or bitstream mode,
+     * and new output stream want open it in
+     * multi pcm mode or bitstream mode, disable it.
+     * Otherwise, if new output stream is 2 channels pcm,
+     * we can let output over speaker and spdif, this it
+     * better than usleep in out_write function
+     */
+    disable = is_multi_pcm(out) || is_bitstream(out);
+#endif
+
+    ALOGD("%s:%d out = %p,device = 0x%x,outputs[OUTPUT_HDMI_MULTI] = %p",__FUNCTION__,__LINE__,out,out->device,adev->outputs[OUTPUT_HDMI_MULTI]);
     if (out == adev->outputs[OUTPUT_HDMI_MULTI]) {
         force_non_hdmi_out_standby(adev);
-    } else if (adev->outputs[OUTPUT_HDMI_MULTI] && !adev->outputs[OUTPUT_HDMI_MULTI]->standby) {
+    } else if (adev->outputs[OUTPUT_HDMI_MULTI] &&
+            !adev->outputs[OUTPUT_HDMI_MULTI]->standby &&
+            disable) {
         out->disabled = true;
         return 0;
     }
+
     out->disabled = false;
     read_out_sound_card(out);
 
 #ifdef BOX_HAL
-    bool speaker_support_samplerate = ((out->config.rate == 44100) || (out->config.rate == 48000));
-    // box ouput pcm data to hdmi,speaker and spdif
-    if ((out->config.flag == HW_PARAMS_FLAG_LPCM) && (out->config.channels <= 2) && speaker_support_samplerate) {
-        if (out->device & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
-            out->device |= AUDIO_DEVICE_OUT_SPEAKER;
-        }
+    open_sound_card_policy(out);
+#endif
 
-        if((adev->out_card[SND_OUT_SOUND_CARD_SPDIF] != SND_OUT_SOUND_CARD_UNKNOWN)
-                && ((out->device & AUDIO_DEVICE_OUT_SPDIF)==0)){
-           out->device |= AUDIO_DEVICE_OUT_SPDIF;
-        }
-    }
-#ifdef RK3288
-    /*3288's hdmi & codec use the same i2s,so only config the codec card*/
-    if (out->device & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
-        out->device &= ~AUDIO_DEVICE_OUT_SPEAKER;
-    }
-#endif
-    out_dump(out, 0);
-#endif
     route_pcm_open(getRouteFromDevice(out->device));
 
     if (out->device & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
@@ -627,7 +720,7 @@ static int start_output_stream(struct stream_out *out)
                     return -ENOMEM;
                 }
 #ifdef BOX_HAL
-                if(out->output_direct){
+                if(is_multi_pcm(out) || is_bitstream(out)){
                     adev->owner[SOUND_CARD_HDMI] = (int*)out;
                 }
 #endif
@@ -672,7 +765,7 @@ static int start_output_stream(struct stream_out *out)
                 }
 
 #ifdef BOX_HAL
-                if(out->output_direct){
+                if(is_multi_pcm(out) || is_bitstream(out)){
                     adev->owner[SOUND_CARD_SPDIF] = (int*)out;
                 }
 #endif
@@ -681,6 +774,7 @@ static int start_output_stream(struct stream_out *out)
     }
 
     adev->out_device |= out->device;
+    ALOGD("%s:%d, out = %p",__FUNCTION__,__LINE__,out);
     return 0;
 }
 
@@ -1093,6 +1187,7 @@ static void do_out_standby(struct stream_out *out)
 {
     struct audio_device *adev = out->dev;
     int i;
+    ALOGD("%s,out = %p,device = 0x%x",__FUNCTION__,out,out->device);
     if (!out->standby) {
         for (i = 0; i < SND_OUT_SOUND_CARD_MAX; i++) {
             if (out->pcm[i]) {
@@ -1216,7 +1311,7 @@ int out_dump(const struct audio_stream *stream, int fd)
     ALOGD("out->Channels   : %d", out->config.channels);
     ALOGD("out->Formate    : %d", out->config.format);
     ALOGD("out->PreiodSize : %d", out->config.period_size);
-
+    ALOGD("out->flag       : %d", out->config.flag);
     return 0;
 }
 /**
@@ -1500,10 +1595,16 @@ static int out_set_volume(struct audio_stream_out *stream, float left,
  *
  * @param buffer bytes
  */
-static void dump_out_data(const void* buffer,size_t bytes, int *size)
+static void dump_out_data(const void* buffer,size_t bytes)
 {
+    char value[PROPERTY_VALUE_MAX];
+    property_get("vendor.audio.record", value, "0");
+    int size = atoi(value);
+    if(size <= 0)
+        return ;
+
     ALOGD("dump pcm file.");
-    static FILE* fd;
+    static FILE* fd = NULL;
     static int offset = 0;
     if(fd == NULL) {
         fd=fopen("/data/misc/audioserver/debug.pcm","wb+");
@@ -1517,11 +1618,10 @@ static void dump_out_data(const void* buffer,size_t bytes, int *size)
         fwrite(buffer,bytes,1,fd);
         offset += bytes;
         fflush(fd);
-        if(offset >= (*size)*1024*1024) {
-            *size = 0;
+        if(offset >= size*1024*1024) {
             fclose(fd);
+            fd = NULL;
             offset = 0;
-            system("setprop media.audio.record 0");
             property_set("vendor.audio.record", "0");
             ALOGD("TEST playback pcmfile end");
         }
@@ -1535,34 +1635,149 @@ static void dump_out_data(const void* buffer,size_t bytes, int *size)
  */
 static void reset_bitstream_buf(struct stream_out *out)
 {
-    if (out->config.format == PCM_FORMAT_S24_LE) {
-        do_out_standby(out);
-        if (out->bitstream_buffer) {
-            free (out->bitstream_buffer);
-            out->bitstream_buffer = NULL;
+    if (is_bitstream(out)) {
+        if(out->config.format == PCM_FORMAT_S24_LE) {
+            if (out->bitstream_buffer) {
+                free (out->bitstream_buffer);
+                out->bitstream_buffer = NULL;
+            }
         }
+    }
+}
+
+static void check_hdmi_reconnect(struct stream_out *out)
+{
+    if(out == NULL) {
+        return ;
+    }
+
+    struct audio_device *adev = out->dev;
+    lock_all_outputs(adev);
+    /*
+     * if snd_reopen is set to true, this means we need to reopen sound card.
+     * There are a situation, we need to do this:
+     *   current stream is bistream over hdmi, and hdmi is unpluged and plug later,
+     *   the driver of hdmi may init the hdmi in pcm mode automatically, according the
+     *   implement of driver of hdmi. If we contiune send bitstream to hdmi open in pcm mode,
+     *   hdmi may make noies or mute.
+     */
+    if(out->snd_reopen && !out->standby)
+    {
+        /*
+         * standby sound cards
+         * the driver of hdmi will auto init with last configurations,
+         * so, we don't need close and reopen sound card of hdmi here.
+         * If driver of hdmi not config the hdmi with last output configurations,
+         * please open this codes to close and reopen sound card of hdmi.
+         */
+  //      do_out_standby(out);
+  //      reset_bitstream_buf(out);
+    }
+    unlock_all_outputs(adev,NULL);
+    /*
+     * audio hal recived the msg of hdmi plugin, and other part of sdk will reviced it too.
+     * Other part(maybe hwc) will config hdmi after it reviced the msg.
+     * Audio must wait other part(maybe hwc) codes config hdmi finish, before send bitstream datas to hdmi
+     */
+    if(out->snd_reopen && is_bitstream(out) && (out->device == AUDIO_DEVICE_OUT_AUX_DIGITAL)) {
+#ifdef USE_DRM
+        const char* PATH = "/sys/class/drm/card0-HDMI-A-1/enabled";
+#else
+        const char* PATH = "/sys/class/display/HDMI/enabled";
+#endif
+        if (access(PATH, R_OK) != 0) {
+            /*
+             * in most test, the time is 700~800ms between received msg of hdmi plug in
+             * and hdmi init finish, so we sleep 1 sec here if no way to get the status of hdmi.
+             */
+            usleep(1000000);
+        } else {
+            /*
+             * read this node to judge the status of hdmi is config finish?
+             */
+            char buffer[1024];
+            int counter  = 200;
+            FILE* file = NULL;
+            while(counter >= 0 && ((file = fopen(PATH,"r")) != NULL)) {
+                int size = fread(buffer,1,sizeof(buffer),file);
+                if(size >= 0) {
+                    if(strstr(buffer,"enabled")) {
+                        fclose(file);
+                        usleep(10000);
+                        break;
+                    }
+                }
+                usleep(10000);
+                counter --;
+                fclose(file);
+            }
+        }
+        ALOGD("%s: out = %p",__FUNCTION__,out);
+        out->snd_reopen = false;
     }
 }
 
 static void out_mute_data(struct stream_out *out,void* buffer,size_t bytes)
 {
     struct audio_device *adev = out->dev;
-    char* buf = buffer;
-    size_t size = bytes;
-    bool mute_screen_off = false;
-
-    if ((out->output_direct) && (out->config.format == PCM_FORMAT_S24_LE)) {
-        buf = out->bitstream_buffer;
-        size = 2*bytes;
-    }
+    bool mute = false;
 
 #ifdef MUTE_WHEN_SCREEN_OFF
-    mute_screen_off = adev->screenOff;
+    mute = adev->screenOff;
 #endif
-
-    if (out->muted || mute_screen_off){
-        memset((void *)buf, 0, size);
+    // for some special customer
+    char value[PROPERTY_VALUE_MAX];
+    property_get("vendor.audio.mute", value, "false");
+    if(!strcasecmp(value,"true")) {
+        mute = true;
     }
+
+    if (out->muted || mute){
+        memset((void *)buffer, 0, bytes);
+    }
+}
+
+static int fill_hdmi_bistream(struct stream_out *out,void* buffer,size_t insize)
+{
+    int size = 2*insize;
+    if (out->bitstream_buffer == NULL) {
+        out->bitstream_buffer = (char *)malloc(size);
+        ALOGD("new bitstream buffer!");
+    }
+    memset(out->bitstream_buffer, 0x00, size);
+    fill_hdmi_bitstream_buf((void *)buffer, (void *)out->bitstream_buffer,(void*)out->channel_buffer, (int)insize);
+    return size;
+}
+
+static int bitstream_write_data(struct stream_out *out,void* buffer,size_t bytes)
+{
+    if((out == NULL) || (buffer == NULL) || (bytes <= 0)) {
+        ALOGD("%s: %d, input parameter is invalid",__FUNCTION__,__LINE__);
+        return -1;
+    }
+
+    struct audio_device *adev = out->dev;
+    int ret = 0;
+    if ((out->device & AUDIO_DEVICE_OUT_AUX_DIGITAL) && (is_multi_pcm(out) || is_bitstream(out))) {
+        int card = adev->out_card[SND_OUT_SOUND_CARD_HDMI];
+        if ((card != SND_OUT_SOUND_CARD_UNKNOWN) && (out->pcm[SND_OUT_SOUND_CARD_HDMI] != NULL)) {
+            if(out->config.format == PCM_FORMAT_S16_LE){
+                out_mute_data(out,buffer,bytes);
+                dump_out_data(buffer, bytes);
+                ret = pcm_write(out->pcm[SND_OUT_SOUND_CARD_HDMI], (void *)buffer, bytes);
+            }else if(out->config.format == PCM_FORMAT_S24_LE){
+                int size = fill_hdmi_bistream(out,buffer,bytes);
+                out_mute_data(out,(void*)out->bitstream_buffer,size);
+                dump_out_data((void*)out->bitstream_buffer, size);
+                ret = pcm_write(out->pcm[SND_OUT_SOUND_CARD_HDMI], (void *)out->bitstream_buffer, size);
+            }
+        } else {
+            ALOGD("%s: %d: HDMI sound card not open",__FUNCTION__,__LINE__);
+            ret = -1;
+        }
+    }
+
+    return ret;
 }
 
 /**
@@ -1589,7 +1804,10 @@ static ssize_t out_write(struct audio_stream_out *stream, const void* buffer,
      * executing out_set_parameters() while holding the hw device
      * mutex
      */
-    char value[PROPERTY_VALUE_MAX];
+
+#ifdef BOX_HAL
+    check_hdmi_reconnect(out);
+#endif
 
     pthread_mutex_lock(&out->lock);
     if (out->standby) {
@@ -1611,21 +1829,10 @@ false_alarm:
 
     if (out->disabled) {
         ret = -EPIPE;
+        ALOGD("%s: %d: error out = %p",__FUNCTION__,__LINE__,out);
         goto exit;
     }
 
-#ifdef BOX_HAL
-    if ((out->output_direct) && (out->config.format == PCM_FORMAT_S24_LE)) {
-        if (out->bitstream_buffer == NULL) {
-            out->bitstream_buffer = (char *)malloc(newbytes);
-            ALOGD("new bitstream buffer!");
-        }
-        memset(out->bitstream_buffer, 0x00, newbytes);
-        fill_hdmi_bitstream_buf((void *)buffer, (void *)out->bitstream_buffer,(void*)out->channel_buffer, (int)bytes);
-    }
-#endif
-
-    out_mute_data(out,buffer,bytes);
 
 #ifdef AUDIO_3A
     if (adev->voice_api != NULL) {
@@ -1638,31 +1845,18 @@ false_alarm:
     }
 #endif
 
-    property_get("vendor.audio.record", value, NULL);
-    prop_pcm = atoi(value);
-    if (prop_pcm > 0) {
-        dump_out_data(buffer, bytes, &prop_pcm);
-    }
     /* Write to all active PCMs */
-    if ((out->output_direct) && (out->device & AUDIO_DEVICE_OUT_AUX_DIGITAL)) {
-        card = adev->out_card[SND_OUT_SOUND_CARD_HDMI];
-        if ((card != SND_OUT_SOUND_CARD_UNKNOWN) && (out->pcm[SND_OUT_SOUND_CARD_HDMI] != NULL)) {
+    if ((out->device & AUDIO_DEVICE_OUT_AUX_DIGITAL) && is_bitstream(out)) {
 #ifdef BOX_HAL
-            if(out->config.format == PCM_FORMAT_S16_LE){
-                ret = pcm_write(out->pcm[SND_OUT_SOUND_CARD_HDMI], (void *)buffer, bytes);
-            }else if(out->config.format == PCM_FORMAT_S24_LE){
-                ret = pcm_write(out->pcm[SND_OUT_SOUND_CARD_HDMI], (void *)out->bitstream_buffer, newbytes);
-            }
-#endif
-            if (ret != 0) {
-                goto exit;
-            }
-        } else {
-            ALOGD("HDMI sound card not open , return !");
-            usleep(bytes * 1000000 / audio_stream_out_frame_size(stream) /
-                   out_get_sample_rate(&stream->common));
+        ret = bitstream_write_data(out,(void*)buffer,bytes);
+        if(ret < 0) {
+            goto exit;
         }
+#endif
     } else {
+        out_mute_data(out,(void*)buffer,bytes);
+        dump_out_data(buffer, bytes);
+        ret = -1;
         for (i = 0; i < SND_OUT_SOUND_CARD_MAX; i++)
             if (out->pcm[i]) {
                 if (i == SND_OUT_SOUND_CARD_BT) {
@@ -1683,6 +1877,9 @@ false_alarm:
                         break;
                 } else {
 #ifdef BOX_HAL
+                    /*
+                     * do not write hdmi/spdif snd sound if they are taken by other bitstream/multi channle pcm stream
+                     */
                     if(((i == SND_OUT_SOUND_CARD_HDMI) && (adev->owner[SOUND_CARD_HDMI] != (int*)out) && (adev->owner[SOUND_CARD_HDMI] != NULL)) ||
                         ((i == SND_OUT_SOUND_CARD_SPDIF) && (adev->owner[SOUND_CARD_SPDIF] != (int*)out) && (adev->owner[SOUND_CARD_SPDIF] != NULL))){
                         continue;
@@ -1703,7 +1900,7 @@ final_exit:
         out->nframes = out->written;
     }
     if (ret != 0) {
-        ALOGV("AudioData write  error , keep slience! ret = %d", ret);
+        ALOGD("AudioData write  error , keep slience! ret = %d", ret);
         usleep(bytes * 1000000 / audio_stream_out_frame_size(stream) /
                out_get_sample_rate(&stream->common));
     }
@@ -2443,8 +2640,13 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     if (devices == AUDIO_DEVICE_NONE)
         devices = AUDIO_DEVICE_OUT_SPEAKER;
     out->device = devices;
-
+    /*
+     * set output_direct_mode to LPCM, means data is not multi pcm or bitstream datas.
+     * set output_direct to false, means data is 2 channels pcm
+     */
+    out->output_direct_mode = LPCM;
     out->output_direct = false;
+    out->snd_reopen = false;
     out->channel_buffer = NULL;
     out->bitstream_buffer = NULL;
     init_hdmi_audio(&out->hdmi_audio);
@@ -2453,7 +2655,7 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     if (flags & AUDIO_OUTPUT_FLAG_DIRECT) {
         if (devices & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
             if(!isPcm) {// !isPcm && (config->format == AUDIO_FORMAT_IEC61937)
-                ALOGD("%s: HDMI Bitstream",__FUNCTION__);
+                ALOGD("%s:out = %p HDMI Bitstream",__FUNCTION__,out);
                 out->channel_mask = config->channel_mask;
                 if (isValidSamplerate(config->sample_rate)) {
                     out->config = pcm_config_direct;
@@ -2487,7 +2689,7 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
                 out->pcm_device = PCM_DEVICE;
                 out->device = AUDIO_DEVICE_OUT_AUX_DIGITAL;
             } else if(isPcm){ // multi pcm
-                ALOGD("%s: HDMI Multi Pcm",__FUNCTION__);
+                ALOGD("%s:out = %p HDMI Multi Pcm",__FUNCTION__,out);
                 if (config->sample_rate == 0)
                     config->sample_rate = HDMI_MULTI_DEFAULT_SAMPLING_RATE;
                 if (config->channel_mask == 0)
@@ -2499,11 +2701,12 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
                 out->pcm_device = PCM_DEVICE;
                 type = OUTPUT_HDMI_MULTI;
                 out->device = AUDIO_DEVICE_OUT_AUX_DIGITAL;
+                out->output_direct = true;
             }else{
                 ALOGD("Not any bitstream mode!");
             }
         } else if ((devices & AUDIO_DEVICE_OUT_SPDIF)) {
-            ALOGD("%s: Spdif Bitstream",__FUNCTION__);
+            ALOGD("%s:out = %p Spdif Bitstream",__FUNCTION__,out);
             out->channel_mask = config->channel_mask;
             out->config = pcm_config_direct;
             if ((config->sample_rate == 48000) ||
@@ -2522,6 +2725,7 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
             out->output_direct = true;
             type = OUTPUT_HDMI_MULTI;
             out->device = AUDIO_DEVICE_OUT_SPDIF;
+            out->output_direct_mode = NLPCM;
         } else {
             out->config = pcm_config;
             out->pcm_device = PCM_DEVICE;
@@ -2531,28 +2735,26 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
         out->config = pcm_config_deep;
         out->pcm_device = PCM_DEVICE_DEEP;
         type = OUTPUT_DEEP_BUF;
-        out->output_direct_mode = LPCM;
     } else {
         out->config = pcm_config;
         out->pcm_device = PCM_DEVICE;
         type = OUTPUT_LOW_LATENCY;
-        out->output_direct_mode = LPCM;
     }
 
     /*
       * the ip of hdmi need convert 16 bits to 21 bits(except rk3128's ip) if bitstream over hdmi
       */
-    if (out->output_direct && (devices & AUDIO_DEVICE_OUT_AUX_DIGITAL)) {
+    if (is_bitstream(out) && (devices & AUDIO_DEVICE_OUT_AUX_DIGITAL)) {
         /*
          * the ip of hdmi need convert 16 bits to 21 bits(except rk3128's ip)
          */
         out->config.format = PCM_FORMAT_S24_LE;
 #ifdef RK3128
-		out->config.format = PCM_FORMAT_S16_LE;
+        out->config.format = PCM_FORMAT_S16_LE;
 #endif
         if(out->config.format == PCM_FORMAT_S24_LE){
             out->channel_buffer = malloc(CHASTA_SUB_NUM);
-            initchnsta(out->channel_buffer); 
+            initchnsta(out->channel_buffer);
             setChanSta(out->channel_buffer,out->config.rate, out->config.channels);
         }
     } else {
@@ -2693,6 +2895,23 @@ static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
             adev->screenOff = true;
         }
     }
+
+#if (defined BOX_HAL) && (defined AUDIO_BITSTREAM_REOPEN_HDMI)
+    // hdmi reconnect
+    ret = str_parms_get_str(parms, AUDIO_PARAMETER_DEVICE_CONNECT, // hdmi reconnect
+                            value, sizeof(value));
+    if (ret >= 0) {
+        int device = atoi(value);
+        if(device == (int)AUDIO_DEVICE_OUT_AUX_DIGITAL){
+            struct stream_out *out = adev->outputs[OUTPUT_HDMI_MULTI];
+            if((out != NULL) && is_bitstream(out) && (out->device == AUDIO_DEVICE_OUT_AUX_DIGITAL)) {
+                ALOGD("%s: hdmi connect when audio stream is output over hdmi, do something,out = %p",__FUNCTION__,out);
+                out->snd_reopen = true;
+            }
+
+        }
+    }
+#endif
 
     pthread_mutex_unlock(&adev->lock);
     str_parms_destroy(parms);
