@@ -2607,6 +2607,34 @@ static int in_get_active_microphones(const struct audio_stream_in *stream,
     return 0;
 }
 
+/*
+ * get support channels mask of hdmi from parsing edid of hdmi
+ */
+static void get_hdmi_support_channels_masks(struct stream_out *out)
+{
+    if(out == NULL)
+        return ;
+
+    int channels = get_hdmi_audio_speaker_allocation(&out->hdmi_audio);
+    switch (channels) {
+    case AUDIO_CHANNEL_OUT_5POINT1:
+        ALOGD("%s: HDMI Support 5.1 channels pcm",__FUNCTION__);
+        out->supported_channel_masks[0] = AUDIO_CHANNEL_OUT_5POINT1;
+        out->supported_channel_masks[1] = AUDIO_CHANNEL_OUT_STEREO;
+        break;
+    case AUDIO_CHANNEL_OUT_7POINT1:
+        ALOGD("%s: HDMI Support 7.1 channels pcm",__FUNCTION__);
+        out->supported_channel_masks[0] = AUDIO_CHANNEL_OUT_5POINT1;
+        out->supported_channel_masks[1] = AUDIO_CHANNEL_OUT_7POINT1;
+        break;
+    case AUDIO_CHANNEL_OUT_STEREO:
+    default:
+        ALOGD("%s: HDMI Support 2 channels pcm",__FUNCTION__);
+        out->supported_channel_masks[0] = AUDIO_CHANNEL_OUT_STEREO;
+        out->supported_channel_masks[1] = AUDIO_CHANNEL_OUT_MONO;
+        break;
+    }
+}
 
 /**
  * @brief adev_open_output_stream
@@ -2665,8 +2693,12 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     out->snd_reopen = false;
     out->channel_buffer = NULL;
     out->bitstream_buffer = NULL;
+
     init_hdmi_audio(&out->hdmi_audio);
-    parse_hdmi_audio(&out->hdmi_audio);
+    if(devices & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
+        parse_hdmi_audio(&out->hdmi_audio);
+        get_hdmi_support_channels_masks(out);
+    }
 
     if (flags & AUDIO_OUTPUT_FLAG_DIRECT) {
         if (devices & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
@@ -2705,19 +2737,42 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
                 out->pcm_device = PCM_DEVICE;
                 out->device = AUDIO_DEVICE_OUT_AUX_DIGITAL;
             } else if(isPcm){ // multi pcm
-                ALOGD("%s:out = %p HDMI Multi Pcm",__FUNCTION__,out);
                 if (config->sample_rate == 0)
                     config->sample_rate = HDMI_MULTI_DEFAULT_SAMPLING_RATE;
                 if (config->channel_mask == 0)
                     config->channel_mask = AUDIO_CHANNEL_OUT_5POINT1;
-                out->channel_mask = config->channel_mask;
-                out->config = pcm_config_hdmi_multi;
-                out->config.rate = config->sample_rate;
-                out->config.channels = audio_channel_count_from_out_mask(config->channel_mask);
-                out->pcm_device = PCM_DEVICE;
-                type = OUTPUT_HDMI_MULTI;
-                out->device = AUDIO_DEVICE_OUT_AUX_DIGITAL;
-                out->output_direct = true;
+
+                int layout = get_hdmi_audio_speaker_allocation(&out->hdmi_audio);
+                unsigned int mask = (layout&config->channel_mask);
+                ALOGD("%s:out = %p HDMI multi pcm: layout = 0x%x,mask = 0x%x",
+                    __FUNCTION__,out,layout,mask);
+                // current hdmi allocation(speaker) only support MONO or STEREO
+                if(mask <= (int)AUDIO_CHANNEL_OUT_STEREO) {
+                    ALOGD("%s:out = %p input stream is multi pcm,channle mask = 0x%x,but hdmi not support,mixer it to stereo output",
+                        __FUNCTION__,out,config->channel_mask);
+                    out->channel_mask = AUDIO_CHANNEL_OUT_STEREO;
+                    out->config = pcm_config;
+                    out->pcm_device = PCM_DEVICE;
+                    type = OUTPUT_LOW_LATENCY;
+                    out->device = AUDIO_DEVICE_OUT_AUX_DIGITAL;
+                    out->output_direct = false;
+                } else {
+                    /*
+                     * maybe input audio stream is 7.1 channels,
+                     * but hdmi only support 5.1, we also output 7.1 for default.
+                     * Is better than output 2 channels after mixer?
+                     * If customer like output 2 channles data after mixer,
+                     * modify codes here
+                     */
+                    out->channel_mask = config->channel_mask;
+                    out->config = pcm_config_hdmi_multi;
+                    out->config.rate = config->sample_rate;
+                    out->config.channels = audio_channel_count_from_out_mask(config->channel_mask);
+                    out->pcm_device = PCM_DEVICE;
+                    type = OUTPUT_HDMI_MULTI;
+                    out->device = AUDIO_DEVICE_OUT_AUX_DIGITAL;
+                    out->output_direct = true;
+                }
             }else{
                 ALOGD("Not any bitstream mode!");
             }
