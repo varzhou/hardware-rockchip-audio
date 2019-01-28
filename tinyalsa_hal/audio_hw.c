@@ -82,6 +82,17 @@
 #include "audio_setting.h"
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+/*
+ * if current audio stream bitstream over hdmi,
+ * and hdmi is removed and reconnected later,
+ * the driver of hdmi may config it with pcm mode automatically,
+ * which is according the implement of hdmi driver.
+ * If hdmi driver implement in this way, in order to output audio
+ * bitstream stream after hdmi reconnected,
+ * we must close sound card of hdmi and reopen/config
+ * it in bitstream mode. If need this, define this macro.
+ */
+#define AUDIO_BITSTREAM_REOPEN_HDMI
 
 //#define ALSA_DEBUG
 #ifdef ALSA_IN_DEBUG
@@ -1491,15 +1502,15 @@ static void dump_out_data(const void* buffer,size_t bytes, int *size)
  */
 static void reset_bitstream_buf(struct stream_out *out)
 {
-    if (out->config.format == PCM_FORMAT_S24_LE) {
-        do_out_standby(out);
-        if (out->bitstream_buffer) {
-            free (out->bitstream_buffer);
-            out->bitstream_buffer = NULL;
+    if (is_bitstream(out)) {
+        if(out->config.format == PCM_FORMAT_S24_LE) {
+            if (out->bitstream_buffer) {
+                free (out->bitstream_buffer);
+                out->bitstream_buffer = NULL;
+            }
         }
     }
 }
-
 const float volume_slice[]={0.8012, 0.6419, 0.5309, 0.4254,
                             0.3408, 0.2828, 0.1773, 0.1116,
                             0.0750, 0.0472, 0.0297, 0.0200,
@@ -1595,6 +1606,78 @@ static void set_data_slice(void *in_data,struct stream_out *out,size_t length)
     }
 }
 
+static void check_hdmi_reconnect(struct stream_out *out)
+{
+    if(out == NULL) {
+        return ;
+    }
+
+    struct audio_device *adev = out->dev;
+    lock_all_outputs(adev);
+    /*
+     * if snd_reopen is set to true, this means we need to reopen sound card.
+     * There are a situation, we need to do this:
+     *   current stream is bistream over hdmi, and hdmi is unpluged and plug later,
+     *   the driver of hdmi may init the hdmi in pcm mode automatically, according the
+     *   implement of driver of hdmi. If we contiune send bitstream to hdmi open in pcm mode,
+     *   hdmi may make noies or mute.
+     */
+    if(out->snd_reopen && !out->standby)
+    {
+        /*
+         * standby sound cards
+         * the driver of hdmi will auto init with last configurations,
+         * so, we don't need close and reopen sound card of hdmi here.
+         * If driver of hdmi not config the hdmi with last output configurations,
+         * please open this codes to close and reopen sound card of hdmi.
+         */
+  //      do_out_standby(out);
+  //      reset_bitstream_buf(out);
+    }
+    unlock_all_outputs(adev,NULL);
+    /*
+     * audio hal recived the msg of hdmi plugin, and other part of sdk will reviced it too.
+     * Other part(maybe hwc) will config hdmi after it reviced the msg.
+     * Audio must wait other part(maybe hwc) codes config hdmi finish, before send bitstream datas to hdmi
+     */
+    if(out->snd_reopen && is_bitstream(out) && (out->device == AUDIO_DEVICE_OUT_AUX_DIGITAL)) {
+#ifdef USE_DRM
+        const char* PATH = "/sys/class/drm/card0-HDMI-A-1/enabled";
+#else
+        const char* PATH = "/sys/class/display/HDMI/enabled";
+#endif
+        if (access(PATH, R_OK) != 0) {
+            /*
+             * in most test, the time is 700~800ms between received msg of hdmi plug in
+             * and hdmi init finish, so we sleep 1 sec here if no way to get the status of hdmi.
+             */
+            usleep(1000000);
+        } else {
+            /*
+             * read this node to judge the status of hdmi is config finish?
+             */
+            char buffer[1024];
+            int counter  = 200;
+            FILE* file = NULL;
+            while(counter >= 0 && ((file = fopen(PATH,"r")) != NULL)) {
+                int size = fread(buffer,1,sizeof(buffer),file);
+                if(size >= 0) {
+                    if(strstr(buffer,"enabled")) {
+                        fclose(file);
+                        break;
+                    }
+                }
+                usleep(10000);
+                counter --;
+                fclose(file);
+            }
+        }
+        ALOGD("%s: out = %p",__FUNCTION__,out);
+        out->snd_reopen = false;
+    }
+}
+
+
 /**
  * @brief out_write
  *
@@ -1622,11 +1705,9 @@ static ssize_t out_write(struct audio_stream_out *stream, const void* buffer,
     out->out_data_size = bytes;
     char value[PROPERTY_VALUE_MAX];
 
-    property_get("media.audio.reset", value, NULL);
-    if (atoi(value) > 0) {
-        reset_bitstream_buf(out);
-        property_set("media.audio.reset", "0");
-    }
+#ifdef BOX_HAL
+    check_hdmi_reconnect(out);
+#endif
 
     pthread_mutex_lock(&out->lock);
     if (out->standby) {
@@ -2627,6 +2708,22 @@ static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
            ret = -EINVAL;
          }
       }
+
+#if (defined BOX_HAL) && (defined AUDIO_BITSTREAM_REOPEN_HDMI)
+          // hdmi reconnect
+      val = str_parms_get_str(parms, AUDIO_PARAMETER_DEVICE_CONNECT, // hdmi reconnect
+                              value, sizeof(value));
+      if (val >= 0) {
+          int device = atoi(value);
+          if(device == (int)AUDIO_DEVICE_OUT_AUX_DIGITAL){
+              struct stream_out *out = adev->outputs[OUTPUT_HDMI_MULTI];
+              if((out != NULL) && is_bitstream(out) && (out->device == AUDIO_DEVICE_OUT_AUX_DIGITAL)) {
+                  ALOGD("%s: hdmi connect when audio stream is output over hdmi, do something,out = %p",__FUNCTION__,out);
+                  out->snd_reopen = true;
+              }
+          }
+      }
+#endif
     }
 
     pthread_mutex_unlock(&adev->lock);

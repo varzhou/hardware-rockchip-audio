@@ -386,6 +386,7 @@ struct stream_out {
     // for hdmi bitstream
     char* channel_buffer;
     char* bitstream_buffer;
+    bool   snd_reopen;
 };
 
 struct stream_in {
