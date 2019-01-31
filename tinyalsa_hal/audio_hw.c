@@ -316,6 +316,7 @@ static char* SPEAKER_NAME [] =
    "realtekrt5651co",
    "rockchipes8316c",
    "rockchiprk809co",
+   "rockchiprt5640c",
 };
 
 static bool is_speaker_out_sound_card(char* buf)
@@ -395,6 +396,7 @@ static char* MIC_NAME [] =
     "realtekrt5651co",
     "rockchipes8316c",
     "rockchiprk809co",
+    "rockchiprt5640c",
 };
 
 static bool is_mic_in_sound_card(char* buf)
