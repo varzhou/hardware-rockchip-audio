@@ -1427,24 +1427,6 @@ static int stream_get_parameter_formats(const struct audio_stream *stream,
         memset(value,0,avail);
         // set support pcm 16 bit default
         strcat(value, "AUDIO_FORMAT_PCM_16_BIT");
-
-        // get the format can be bistream?
-        if(out->device & AUDIO_DEVICE_OUT_AUX_DIGITAL){
-            int cursor = strlen(value);
-            for(int i = 0; i < ARRAY_SIZE(sSurroundFormat); i++){
-                if(is_support_format(&out->hdmi_audio,sSurroundFormat[i].format)){
-                    avail -= cursor;
-                    int length = snprintf(value + cursor, avail, "%s%s",
-                                   cursor > 0 ? "|" : "",
-                                   sSurroundFormat[i].value);
-                    if (length < 0 || length >= avail) {
-                        break;
-                    }
-                    cursor += length;
-                }
-            }
-        }
-
         str_parms_add_str(reply, AUDIO_PARAMETER_STREAM_SUP_FORMATS, value);
         return 0;
     }
@@ -2991,6 +2973,48 @@ static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
     return status;
 }
 
+/*
+ * get support formats for bitstream
+ * There is no stand interface in andorid to get the formats can be bistream,
+ * so we extend get parameter to report formats
+ */
+static int get_support_bitstream_formats(struct str_parms *query,
+                                    struct str_parms *reply)
+{
+    int avail = 1024;
+    char value[avail];
+
+    struct hdmi_audio_infors hdmi_edid;
+    init_hdmi_audio(&hdmi_edid);
+    const char* AUDIO_PARAMETER_STREAM_SUP_BITSTREAM_FORMAT = "sup_bitstream_formats";
+    if (str_parms_has_key(query, AUDIO_PARAMETER_STREAM_SUP_BITSTREAM_FORMAT)) {
+        memset(value,0,avail);
+
+        // get the format can be bistream?
+        if(parse_hdmi_audio(&hdmi_edid) >= 0){
+            int cursor = 0;
+            for(int i = 0; i < ARRAY_SIZE(sSurroundFormat); i++){
+                if(is_support_format(&hdmi_edid,sSurroundFormat[i].format)){
+                    avail -= cursor;
+                    int length = snprintf(value + cursor, avail, "%s%s",
+                                   cursor > 0 ? "|" : "",
+                                   sSurroundFormat[i].value);
+                    if (length < 0 || length >= avail) {
+                        break;
+                    }
+                    cursor += length;
+                }
+            }
+        }
+
+        destory_hdmi_audio(&hdmi_edid);
+        str_parms_add_str(reply, AUDIO_PARAMETER_STREAM_SUP_BITSTREAM_FORMAT, value);
+        return 0;
+    }
+
+    return -1;
+}
+
 /**
  * @brief adev_get_parameters
  *
@@ -3004,18 +3028,23 @@ static char * adev_get_parameters(const struct audio_hw_device *dev,
 {
     struct audio_device *adev = (struct audio_device *)dev;
     struct str_parms *parms = str_parms_create_str(keys);
-    char value[32];
-    int ret = str_parms_get_str(parms, "ec_supported", value, sizeof(value));
-    char *str;
-
-    str_parms_destroy(parms);
-    if (ret >= 0) {
+    struct str_parms *reply = str_parms_create();
+    char *str = NULL;
+    ALOGD("%s: keys = %s",__FUNCTION__,keys);
+    if (str_parms_has_key(parms, "ec_supported")) {
+        str_parms_destroy(parms);
         parms = str_parms_create_str("ec_supported=yes");
         str = str_parms_to_str(parms);
-        str_parms_destroy(parms);
-        return str;
+    } else if (get_support_bitstream_formats(parms,reply) == 0) {
+        str = str_parms_to_str(reply);
+    } else {
+        str = strdup("");
     }
-    return strdup("");
+
+    str_parms_destroy(parms);
+    str_parms_destroy(reply);
+
+    return str;
 }
 
 /**
