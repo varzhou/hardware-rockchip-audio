@@ -1937,7 +1937,7 @@ false_alarm:
         memset((void *)buffer, 0, bytes);
 
     if (!is_bitstream(out)){
-        set_data_slice((void *)buffer,out,bytes);
+        //set_data_slice((void *)buffer,out,bytes);
     }
 #ifdef AUDIO_3A
     if (adev->voice_api != NULL) {
