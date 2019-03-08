@@ -2000,9 +2000,11 @@ false_alarm:
 exit:
     pthread_mutex_unlock(&out->lock);
 final_exit:
-    if(!is_bitstream(out))
     {
-        // For PCM we always consume the buffer and return #bytes regardless of ret.
+        /*
+         * For PCM we always consume the buffer and return #bytes regardless of ret.
+         * And format = IEC6137 can be see a special pcm format also need record frames
+         */
         out->written += bytes / (out->config.channels * sizeof(short));
         out->nframes = out->written;
     }
@@ -2098,7 +2100,7 @@ static int out_get_presentation_position(const struct audio_stream_out *stream,
     // We are just interested in the frames pending for playback in the kernel buffer here,
     // not the total played since start.  The current behavior should be safe because the
     // cases where both cards are active are marginal.
-    if(!is_bitstream(out)) {
+    {
         for (i = 0; i < SND_OUT_SOUND_CARD_MAX; i++) {
             if (out->pcm[i]) {
                 size_t avail;
@@ -2619,6 +2621,17 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     int ret;
     enum output_type type = OUTPUT_LOW_LATENCY;
 
+    /*
+     * AUDIO_FORMAT_IEC61937 is bitstream format since android6.0.
+     * We bitream audio stream with config format = AUDIO_FORMAT_PCM_16_BIT , flags = AUDIO_OUTPUT_FLAG_DIRECT,
+     * and Bypass property = true in our player. this is not corret actually.
+     * For compatible with old version of out player, We still keep this configs
+     * (format = AUDIO_FORMAT_PCM_16_BIT , flags = AUDIO_OUTPUT_FLAG_DIRECT
+     * and Bypass property = true) guaranteed to audio stream is bitstream output.
+     * And for compatible with other applications/player, here we check the format = IEC61937.
+     */
+    bool bitstream = (config->format == AUDIO_FORMAT_IEC61937);
+
     ALOGD("audio hal adev_open_output_stream devices = 0x%x, flags = %d, samplerate = %d",
           devices, flags, config->sample_rate);
     out = (struct stream_out *)calloc(1, sizeof(struct stream_out));
@@ -2641,7 +2654,7 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
 
     if (flags & AUDIO_OUTPUT_FLAG_DIRECT) {
         if (devices & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
-            if(isBypass()) {
+            if(isBypass() || bitstream) {
                 out->channel_mask = config->channel_mask;
                 if (isValidSamplerate(config->sample_rate)) {
                     out->config = pcm_config_direct;
@@ -2691,7 +2704,7 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
             }else{
                 ALOGD("Not any bitstream mode!");
             }
-        } else if ((devices & AUDIO_DEVICE_OUT_SPDIF)) {
+        } else if ((devices & AUDIO_DEVICE_OUT_SPDIF) && (isBypass() || bitstream)) {
             ALOGD("%s: Spdif Bitstream",__FUNCTION__);
             out->channel_mask = config->channel_mask;
             out->config = pcm_config_direct;
