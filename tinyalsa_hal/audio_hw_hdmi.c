@@ -27,7 +27,6 @@
 #include <unistd.h>
 #include <errno.h>
 #include <cutils/log.h>
-#include <pthread.h>
 
 #ifdef USE_DRM
 #define HDMI_EDID_NODE      "/sys/class/drm/card0-HDMI-A-1/edid"
@@ -324,13 +323,12 @@ int hdmi_parse_base_block(unsigned char *buf, int *extend_num)
 
 void init_hdmi_audio(struct hdmi_audio_infors *infor)
 {
-    pthread_mutex_lock(&infor->lock);
     if(infor != NULL) {
+        pthread_mutex_init(&infor->lock, NULL);
         infor->number = 0;
         infor->channel_layout = -1;
         infor->audio = NULL;
     }
-    pthread_mutex_unlock(&infor->lock);
 }
 
 void destory_hdmi_audio(struct hdmi_audio_infors *infor)
@@ -345,6 +343,7 @@ void destory_hdmi_audio(struct hdmi_audio_infors *infor)
         infor->number = 0;
         infor->channel_layout = -1;
         pthread_mutex_unlock(&infor->lock);
+        pthread_mutex_destroy(&infor->lock);
     }
 }
 
@@ -354,12 +353,11 @@ void destory_hdmi_audio(struct hdmi_audio_infors *infor)
  */
 int get_hdmi_audio_speaker_allocation(struct hdmi_audio_infors *infor)
 {
-    pthread_mutex_lock(&infor->lock);
     if((infor == NULL) || (infor->channel_layout == -1)) {
-        pthread_mutex_unlock(&infor->lock);
         return AUDIO_CHANNEL_OUT_STEREO;
     }
 
+    pthread_mutex_lock(&infor->lock);
     int layout = AUDIO_CHANNEL_NONE;
     int length = ARRAY_SIZE(HDMI_SPEAKER_ALLOCATION_TABLE);
     for(int i = 0; i < length; i++) {

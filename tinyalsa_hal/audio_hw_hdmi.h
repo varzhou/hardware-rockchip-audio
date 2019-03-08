@@ -29,6 +29,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <system/audio.h>
+#include <pthread.h>
 
 
 /* HDMI Audio Sample Rate */
