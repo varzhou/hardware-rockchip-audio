@@ -555,6 +555,13 @@ static bool is_hdmi_out_sound_card(char* buf)
 
 static bool is_spdif_out_sound_card(char* buf)
 {
+    const char* NAME [] =
+    {
+       "rockchipspdif",
+       "rockchipcdndpso",
+    };
+    int length = sizeof(NAME)/sizeof(char*);
+
     if(buf == NULL)
         return false;
 
@@ -562,8 +569,9 @@ static bool is_spdif_out_sound_card(char* buf)
      * hdmi: diffrent product may have diffrent card name,modify codes here
      * for example: 2 [rockchipspdif  ]: rockchip-spdif - rockchip-spdif
      */
-    if(strstr(buf,"rockchipspdif")&& strstr(buf,":")){
-        return true;
+    for(int i = 0; i < length; i ++) {
+        if(strstr(buf,NAME[i]) && strstr(buf,":"))
+            return true;
     }
 
     // add codes here
