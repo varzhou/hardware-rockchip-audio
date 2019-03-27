@@ -316,6 +316,7 @@ static char* SPEAKER_NAME [] =
    "realtekrt5651co",
    "rockchipes8316c",
    "rockchiprk809co",
+   "rockchiprk817co",
    "rockchiprt5640c",
 };
 
@@ -396,6 +397,7 @@ static char* MIC_NAME [] =
     "realtekrt5651co",
     "rockchipes8316c",
     "rockchiprk809co",
+    "rockchiprk817co",
     "rockchiprt5640c",
 };
 
