@@ -594,31 +594,36 @@ static bool is_multi_pcm(struct stream_out *out)
  */
 static int mixer_mode_set(struct stream_out *out)
 {
-    int ret = -1;
+    int ret = 0;
     struct mixer *mMixer = NULL;
     struct mixer_ctl *pctl;
     struct audio_device *adev = out->dev;
-    mMixer = mixer_open_legacy(adev->out_card[SND_OUT_SOUND_CARD_HDMI]);
-    if(!mMixer) {
-        ALOGE("mMixer is a null point %s %d,CARD = %d",__func__, __LINE__,adev->out_card[SND_OUT_SOUND_CARD_HDMI]);
-        return ret;
-    }
-    pctl = mixer_get_control(mMixer,"AUDIO MODE",0 );
-    ALOGD("Now set mixer audio_mode is %d for drm",out->output_direct_mode);
-    switch (out->output_direct_mode) {
-    case HBR:
-        ret = mixer_ctl_set_val(pctl , out->output_direct_mode);
-        break;
-    case NLPCM:
-        ret = mixer_ctl_set_val(pctl , out->output_direct_mode);
-        break;
-    default:
-        ret = mixer_ctl_set_val(pctl , out->output_direct_mode);
-        break;
+    if(out->device & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
+        mMixer = mixer_open_legacy(adev->out_card[SND_OUT_SOUND_CARD_HDMI]);
+        if(!mMixer) {
+            ALOGE("mMixer is a null point %s %d,CARD = %d",__func__, __LINE__,adev->out_card[SND_OUT_SOUND_CARD_HDMI]);
+            return -1;
+        }
+        pctl = mixer_get_control(mMixer,"AUDIO MODE",0 );
+        if(pctl != NULL) {
+            ALOGD("Now set mixer audio_mode is %d for drm",out->output_direct_mode);
+            switch (out->output_direct_mode) {
+            case HBR:
+                ret = mixer_ctl_set_val(pctl , out->output_direct_mode);
+                break;
+            case NLPCM:
+                ret = mixer_ctl_set_val(pctl , out->output_direct_mode);
+                break;
+            default:
+                ret = mixer_ctl_set_val(pctl , out->output_direct_mode);
+                break;
+            }
+        }
+
+        mixer_close_legacy(mMixer);
     }
 
-    mixer_close_legacy(mMixer);
-    if (ret!=0) {
+    if (ret != 0) {
         ALOGE("set_controls() can not set ctl!");
         return -EINVAL;
     }
@@ -649,7 +654,14 @@ static void open_sound_card_policy(struct stream_out *out)
         }
 
         if(adev->out_card[SND_OUT_SOUND_CARD_HDMI] != SND_OUT_SOUND_CARD_UNKNOWN) {
-            out->device |= AUDIO_DEVICE_OUT_AUX_DIGITAL;
+            /*
+             * hdmi is taken by direct/mulit pcm output
+             */
+            if(adev->outputs[OUTPUT_HDMI_MULTI] != NULL) {
+                out->device &= ~AUDIO_DEVICE_OUT_AUX_DIGITAL;
+            } else {
+                out->device |= AUDIO_DEVICE_OUT_AUX_DIGITAL;
+            }
         }
 
         if(adev->out_card[SND_OUT_SOUND_CARD_SPDIF] != SND_OUT_SOUND_CARD_UNKNOWN){
@@ -695,7 +707,7 @@ static int start_output_stream(struct stream_out *out)
      * we can let output over speaker and spdif, this it
      * better than usleep in out_write function
      */
-    disable = is_multi_pcm(out) || is_bitstream(out);
+  //  disable = is_multi_pcm(out) || is_bitstream(out);
 #endif
 
     ALOGD("%s:%d out = %p,device = 0x%x,outputs[OUTPUT_HDMI_MULTI] = %p",__FUNCTION__,__LINE__,out,out->device,adev->outputs[OUTPUT_HDMI_MULTI]);
@@ -719,17 +731,16 @@ static int start_output_stream(struct stream_out *out)
 
     if (out->device & AUDIO_DEVICE_OUT_AUX_DIGITAL) {
         if (adev->owner[SOUND_CARD_HDMI] == NULL) {
-#ifdef BOX_HAL
-#ifdef USE_DRM
-            ret = mixer_mode_set(out);
-
-            if (ret!=0) {
-                ALOGE("mixer mode set error,ret=%d!",ret);
-            }
-#endif
-#endif
             card = adev->out_card[SND_OUT_SOUND_CARD_HDMI];
             if(card != (int)SND_OUT_SOUND_CARD_UNKNOWN) {
+#ifdef BOX_HAL
+#ifdef USE_DRM
+                ret = mixer_mode_set(out);
+                if (ret!=0) {
+                    ALOGE("mixer mode set error,ret=%d!",ret);
+                }
+#endif
+#endif
                 out->pcm[SND_OUT_SOUND_CARD_HDMI] = pcm_open(card, out->pcm_device,
                                                     PCM_OUT | PCM_MONOTONIC, &out->config);
                 if (out->pcm[SND_OUT_SOUND_CARD_HDMI] &&
