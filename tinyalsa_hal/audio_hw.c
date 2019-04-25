@@ -1545,9 +1545,7 @@ static int out_set_parameters(struct audio_stream *stream, const char *kvpairs)
                                   !adev->outputs[OUTPUT_HDMI_MULTI] ||
                                   adev->outputs[OUTPUT_HDMI_MULTI]->standby)) {
                 adev->out_device = output_devices(out) | val;
-#ifndef RK3228
                 do_out_standby(out);
-#endif
 
             }
             out->device = val;
