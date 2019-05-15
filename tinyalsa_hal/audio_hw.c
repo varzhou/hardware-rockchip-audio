@@ -927,7 +927,7 @@ static int start_output_stream(struct stream_out *out)
 
     }
 
-    if (out->device & AUDIO_DEVICE_OUT_SPDIF) {
+    //if (out->device & AUDIO_DEVICE_OUT_SPDIF) {
         card = adev->out_card[SND_OUT_SOUND_CARD_SPDIF];
         if(card != (int)SND_OUT_SOUND_CARD_UNKNOWN) {
             out->pcm[SND_OUT_SOUND_CARD_SPDIF] = pcm_open(card, out->pcm_device,
@@ -941,7 +941,7 @@ static int start_output_stream(struct stream_out *out)
                 return -ENOMEM;
             }
         }
-    }
+    //}
 
     adev->out_device |= out->device;
 
