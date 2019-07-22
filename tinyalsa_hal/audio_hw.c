@@ -349,12 +349,16 @@ static bool is_hdmi_out_sound_card(char* buf)
      * hdmi: diffrent product may have diffrent card name,modify codes here
      * for example: 1 [rockchiphdmi   ]: rockchip-hdmi - rockchip-hdmi
      */
-    if(strstr(buf,"rockchiphdmi")&& strstr(buf,":")){
-        return true;
-    }
-    // for dp
-    if(strstr(buf,"rkhdmidpsound") && strstr(buf,":")){
-        return true;
+    const char* HDMI_NAME [] =
+    {
+       "rkhdmi", // rockchiphdmi,rkhdmidpsound,rkhdmianalogsnd
+    };
+
+    int length = sizeof(HDMI_NAME)/sizeof(char*);
+    for(int i = 0; i < length; i ++) {
+        if(strstr(buf,HDMI_NAME[i])&& strstr(buf,":")){
+            return true;
+        }
     }
 
     // add codes here
@@ -390,19 +394,19 @@ static bool is_bt_out_sound_card(char* buf)
     return false;
 }
 
-/*add codes name here*/
-static char* MIC_NAME [] =
-{
-    "rockchiprk",
-    "realtekrt5651co",
-    "rockchipes8316c",
-    "rockchiprk809co",
-    "rockchiprk817co",
-    "rockchiprt5640c",
-};
-
 static bool is_mic_in_sound_card(char* buf)
 {
+    /*add codes name here*/
+    const char* MIC_NAME [] =
+    {
+        "rockchiprk",
+        "realtekrt5651co",
+        "rockchipes8316c",
+        "rockchiprk809co",
+        "rockchiprk817co",
+        "rockchiprt5640c",
+    };
+
     int length = sizeof(MIC_NAME)/sizeof(char*);
 
     if(buf == NULL)
