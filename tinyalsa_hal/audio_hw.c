@@ -351,7 +351,9 @@ static bool is_hdmi_out_sound_card(char* buf)
      */
     const char* HDMI_NAME [] =
     {
-       "rkhdmi", // rockchiphdmi,rkhdmidpsound,rkhdmianalogsnd
+       "rockchiphdmi",
+       "rkhdmidpsound",
+       "rkhdmianalogsnd",
     };
 
     int length = sizeof(HDMI_NAME)/sizeof(char*);
