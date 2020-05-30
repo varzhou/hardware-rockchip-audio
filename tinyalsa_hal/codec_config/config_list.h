@@ -55,6 +55,7 @@
 #include "rt5651_config.h"
 #include "es8316_config.h"
 #include "cx2072_config.h"
+#include "rt5670_config.h"
 #include "hdmi_analog_config.h"
 
 struct alsa_sound_card_config
@@ -112,6 +113,10 @@ struct alsa_sound_card_config sound_card_config_list[] = {
     {
         .sound_card_name = "realtekrt5651co",
         .route_table = &rt5651_config_table,
+    },
+	{
+        .sound_card_name = "RKRT5670",
+        .route_table = &rt5670_config_table,
     },
     {
         .sound_card_name = "rockchipes8316c",

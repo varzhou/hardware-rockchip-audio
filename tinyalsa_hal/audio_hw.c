@@ -98,7 +98,7 @@
  */
 #define AUDIO_BITSTREAM_REOPEN_HDMI
 
-//#define ALSA_DEBUG
+#define ALSA_DEBUG
 #ifdef ALSA_IN_DEBUG
 FILE *in_debug;
 #endif
@@ -508,6 +508,7 @@ static bool is_speaker_out_sound_card(char* buf)
        "realtekrt5651co",
        "rockchipes8316c",
        "rockchiprk809co",
+       "rkrt5670",
     };
 
     int length = sizeof(NAME)/sizeof(char*);
@@ -600,6 +601,7 @@ static bool is_mic_in_sound_card(char* buf)
         "realtekrt5651co",
         "rockchipes8316c",
         "rockchiprk809co",
+        "rkrt5670",
     };
     int length = sizeof(NAME)/sizeof(char*);
 
@@ -1102,7 +1104,7 @@ static int start_input_stream(struct stream_in *in)
             ALOGE("%s: the number of mic is invalid,please check");
             return -1;
         }
-
+		
         in->pcm = pcm_open(card, PCM_DEVICE, PCM_IN, in->config);
         if (in->resampler) {
             release_resampler(in->resampler);
@@ -1129,6 +1131,7 @@ static int start_input_stream(struct stream_in *in)
      } else if (in->device & AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET){
         start_bt_sco(adev);
      } else {
+     
         card = (int)adev->in_card[SND_IN_SOUND_CARD_MIC];
         if(card == (int)SND_OUT_SOUND_CARD_UNKNOWN){
             ALOGE("%s: the number of mic is invalid,please check");
