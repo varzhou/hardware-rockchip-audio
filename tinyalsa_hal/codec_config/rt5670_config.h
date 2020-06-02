@@ -141,57 +141,10 @@ const struct config_control rt5670_bluetooth_sco_mic_capture_controls[] = {
 
 const struct config_control rt5670_playback_off_controls[] = {
 	
-	{
-        .ctl_name = "Stereo DAC MIXL DAC L1 Switch",// 114
-        .int_val = 0,
-    },
-    {
-        .ctl_name = "Stereo DAC MIXR DAC L1 Switch",//119
-        .int_val = 0,
-    },
-	{
-        .ctl_name = "Stereo DAC MIXL DAC R1 Switch",//116
-        .int_val = 0,
-    },
-    {
-        .ctl_name = "Stereo DAC MIXR DAC R1 Switch",//117
-        .int_val = 0,
-    },
 };
 
 const struct config_control rt5670_capture_off_controls[] = {
-	{
-        .ctl_name = "Sto1 ADC MIXR ADC1 Switch", //88
-        .int_val = 0,
-    },
-    {
-        .ctl_name = "Sto1 ADC MIXL ADC1 Switch",//86
-        .int_val = 0,
-    },
-	{
-        .ctl_name = "ADC Capture Volume",//20
-        .int_val = {0, 0},
-    },
-	{
-        .ctl_name = "RECMIXL BST1 Switch",//65
-        .int_val = {0},
-    },
-	{
-        .ctl_name = "RECMIXR BST1 Switch",//68
-        .int_val = {0},
-    },
-    {
-        .ctl_name = "RECMIXL INL Switch",//63
-        .int_val = {0},
-    },
-    {
-        .ctl_name = "RECMIXR INR Switch",//66
-        .int_val = {0},
-    },
-    {
-		.ctl_name = "IN1 Boost",//16
-		.int_val = {0},
-    },
+	
 };
 
 const struct config_control rt5670_incall_off_controls[] = {
